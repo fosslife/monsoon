@@ -12,12 +12,12 @@ function App() {
   return (
     <div className="h-full">
       <ResizablePanelGroup direction="horizontal">
-        <ResizablePanel defaultSize={12} minSize={4} maxSize={16}>
+        <ResizablePanel defaultSize={12} maxSize={16}>
           <Navbar />
         </ResizablePanel>
         <ResizableHandle />
         <ResizablePanel>
-          <div className="p-3">
+          <div className="h-full p-3 overflow-auto">
             <Routes>
               <Route path="/" element={<Home />} />
               <Route path="/cpu" element={<CPU />} />

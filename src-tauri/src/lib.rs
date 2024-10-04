@@ -10,7 +10,7 @@ use std::{
 use serde::Serialize;
 use sysinfo::{CpuRefreshKind, RefreshKind, System};
 use tauri::{
-    ipc::Channel, AppHandle, Emitter, Listener, Manager, State, WebviewUrl, WebviewWindowBuilder,
+    ipc::Channel, AppHandle, Emitter, Listener, Manager, WebviewUrl, WebviewWindowBuilder,
 };
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -26,11 +26,11 @@ pub fn run() {
                 .fullscreen(false)
                 .build()?;
 
-            let process_arg: Vec<String> = env::args().collect();
-            if process_arg.contains(&"--debug".to_string()) {
-                // in prod build, if --debug is passed, open devtools
-                app.get_webview_window("main").unwrap().open_devtools();
-            }
+            // let process_arg: Vec<String> = env::args().collect();
+            // if process_arg.contains(&"--debug".to_string()) {
+            //     // in prod build, if --debug is passed, open devtools
+            //     app.get_webview_window("main").unwrap().open_devtools();
+            // }
             #[cfg(debug_assertions)]
             app.get_webview_window("main").unwrap().open_devtools();
 
