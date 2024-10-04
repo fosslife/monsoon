@@ -2,7 +2,7 @@ use std::{
     env,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc, Mutex,
+        Arc,
     },
     time::Duration,
 };
@@ -10,7 +10,7 @@ use std::{
 use serde::Serialize;
 use sysinfo::{CpuRefreshKind, RefreshKind, System};
 use tauri::{
-    ipc::Channel, App, AppHandle, Listener, Manager, State, WebviewUrl, WebviewWindowBuilder,
+    ipc::Channel, AppHandle, Emitter, Listener, Manager, State, WebviewUrl, WebviewWindowBuilder,
 };
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -49,6 +49,7 @@ struct SystemInfo {
     boot_time: u64,
     distribution_id: String,
     cpu_arch: String,
+    uptime: u64,
 }
 
 #[tauri::command]
@@ -61,6 +62,7 @@ fn get_system_info() -> SystemInfo {
     let boot_time = System::boot_time();
     let distribution_id = System::distribution_id();
     let cpu_arch = System::cpu_arch().unwrap_or_else(|| "Unknown".to_string());
+    let uptime: u64 = System::uptime();
 
     SystemInfo {
         os_name,
@@ -70,12 +72,12 @@ fn get_system_info() -> SystemInfo {
         boot_time,
         distribution_id,
         cpu_arch,
+        uptime,
     }
 }
 
-#[derive(Debug, Serialize, Default)]
+#[derive(Debug, Serialize, Default, Clone)]
 struct CPUInfo {
-    cpu_name: String,
     cpu_brand: String,
     physical_cores: usize,
     logical_cores: usize,
@@ -101,13 +103,28 @@ async fn get_cpu_info(app: AppHandle, on_event: Channel<Vec<CoreInfo>>) -> Resul
         stop_cpu_flag_clone.store(true, Ordering::SeqCst);
     });
 
+    // let cpu_name =System::cp;
+    let cpu_brand = sys.cpus()[0].brand().to_string();
+    let physical_cores = sys.physical_core_count().unwrap_or_else(|| 0);
+    let logical_cores = sys.cpus().len();
+
+    app.emit(
+        "cpu_info",
+        CPUInfo {
+            cpu_brand,
+            physical_cores,
+            logical_cores,
+        },
+    )
+    .unwrap();
+
     loop {
         if stop_cpu_flag.load(Ordering::SeqCst) {
             break Ok(());
         }
         sys.refresh_cpu_usage();
 
-        let mut cores = vec![];
+        let mut cores: Vec<CoreInfo> = vec![];
 
         for cpu in sys.cpus() {
             let core_id = cpu.vendor_id().to_string();
