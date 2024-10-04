@@ -7,6 +7,7 @@ use std::{
     time::Duration,
 };
 
+use raw_cpuid::{CacheType, CpuId};
 use serde::Serialize;
 use sysinfo::{CpuRefreshKind, RefreshKind, System};
 use tauri::{
@@ -81,6 +82,7 @@ struct CPUInfo {
     cpu_brand: String,
     physical_cores: usize,
     logical_cores: usize,
+    cache_sizes: Vec<(String, usize)>,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -108,12 +110,15 @@ async fn get_cpu_info(app: AppHandle, on_event: Channel<Vec<CoreInfo>>) -> Resul
     let physical_cores = sys.physical_core_count().unwrap_or_else(|| 0);
     let logical_cores = sys.cpus().len();
 
+    let cache_sizes = get_cache_sizes();
+
     app.emit(
         "cpu_info",
         CPUInfo {
             cpu_brand,
             physical_cores,
             logical_cores,
+            cache_sizes,
         },
     )
     .unwrap();
@@ -146,4 +151,28 @@ async fn get_cpu_info(app: AppHandle, on_event: Channel<Vec<CoreInfo>>) -> Resul
 
         std::thread::sleep(Duration::from_secs(1))
     }
+}
+
+fn get_cache_sizes() -> Vec<(String, usize)> {
+    let cpuid = CpuId::new();
+    let mut cache_sizes = Vec::new();
+
+    if let Some(cparams) = cpuid.get_cache_parameters() {
+        for cache in cparams {
+            let size = cache.associativity()
+                * cache.physical_line_partitions()
+                * cache.coherency_line_size()
+                * cache.sets();
+            let level = cache.level();
+            let cache_type = match cache.cache_type() {
+                CacheType::Data => "Data",
+                CacheType::Instruction => "Instruction",
+                CacheType::Unified => "Unified",
+                _ => "Unknown",
+            };
+            cache_sizes.push((format!("L{} {} Cache", level, cache_type), size));
+        }
+    }
+
+    cache_sizes
 }

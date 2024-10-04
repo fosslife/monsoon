@@ -17,6 +17,7 @@ type CPUInfo = {
   cpu_brand: string;
   physical_cores: number;
   logical_cores: number;
+  cache_sizes: [string, number][];
 };
 
 type CoreInfo = {
@@ -41,12 +42,11 @@ export const CPU = () => {
   const [cpuInfo, setCpuInfo] = useState<CPUInfo | null>(null);
   const [coreInfo, setCoreInfo] = useState<CoreInfo[]>([]);
   const [coresHistory, setCoresHistory] = useState<CoresHistoryState>([]);
-  const [realtimeMode, setRealtimeMode] = useState(false);
+  const [realtimeMode, setRealtimeMode] = useState(true);
 
   const onEvent = new Channel<CoreInfo[]>();
 
   onEvent.onmessage = (coreInfo) => {
-    console.log("EVENT: ", coreInfo);
     setCoreInfo(coreInfo);
 
     setCoresHistory((prevHistory) => {
@@ -78,6 +78,7 @@ export const CPU = () => {
 
   useEffect(() => {
     let unlisten = listen<CPUInfo>("cpu_info", ({ payload }) => {
+      console.log("cpu_info", payload);
       setCpuInfo(payload);
     });
 
@@ -153,85 +154,117 @@ export const CPU = () => {
               {coresHistory.map((core) => (
                 <div
                   key={core.core_name}
-                  className="bg-white p-4 rounded-lg shadow overflow-hidden"
+                  className="bg-white px-1 pt-2 rounded-lg shadow overflow-hidden"
                 >
                   <h3>{core.core_name}</h3>
-                  <AreaChart
-                    width={300}
-                    height={200}
-                    data={core.data}
-                    margin={{ top: 10, right: 30, left: 0, bottom: 0 }}
-                  >
-                    <defs>
-                      <linearGradient
-                        id={`coreGradient-${core.core_name}`}
-                        x1="0"
-                        y1="0"
-                        x2="0"
-                        y2="1"
-                      >
-                        <stop
-                          offset="5%"
-                          stopColor="#8884d8"
-                          stopOpacity={0.8}
-                        />
-                        <stop
-                          offset="100%"
-                          stopColor="#8884d8"
-                          stopOpacity={0}
-                        />
-                      </linearGradient>
-                    </defs>
+                  <ResponsiveContainer width={"100%"} height={200}>
+                    <AreaChart
+                      data={core.data}
+                      margin={{ top: 10, right: 30, left: 0, bottom: 0 }}
+                    >
+                      <defs>
+                        <linearGradient
+                          id={`coreGradient-${core.core_name}`}
+                          x1="0"
+                          y1="0"
+                          x2="0"
+                          y2="1"
+                        >
+                          <stop
+                            offset="5%"
+                            stopColor="#8884d8"
+                            stopOpacity={0.8}
+                          />
+                          <stop
+                            offset="100%"
+                            stopColor="#8884d8"
+                            stopOpacity={0}
+                          />
+                        </linearGradient>
+                      </defs>
 
-                    <XAxis
-                      dataKey="timestamp"
-                      type="number"
-                      domain={["dataMin", "dataMax"]}
-                      // enable this for clock time
-                      // tickFormatter={(unixTime) =>
-                      //   new Date(unixTime).toLocaleTimeString()
-                      // }
-                      tickFormatter={(unixTime) => {
-                        const seconds = Math.round(
-                          (Date.now() - unixTime) / 1000
-                        );
-                        return seconds <= 60 ? `${60 - seconds}s` : "";
-                      }}
-                      tick={{ fontSize: 12 }}
-                      ticks={[...Array(7)].map(
-                        (_, i) => Date.now() - (60 - i * 10) * 1000
-                      )}
-                    />
-                    <YAxis
-                      tick={{ fontSize: 12 }}
-                      domain={[0, 100]}
-                      tickFormatter={(value) => `${value}%`}
-                    />
-                    <Tooltip
-                      // enable this for clock time
-                      // labelFormatter={(label) =>
-                      //   new Date(label).toLocaleTimeString()
-                      // }
-                      labelFormatter={(unixTime) => {
-                        const seconds = Math.round(
-                          (Date.now() - unixTime) / 1000
-                        );
-                        return `${60 - seconds} seconds ago`;
-                      }}
-                      formatter={(value) => [
-                        `${Number(value).toFixed(2)}%`,
-                        "Usage",
-                      ]}
-                    />
+                      <XAxis
+                        dataKey="timestamp"
+                        type="number"
+                        domain={["dataMin", "dataMax"]}
+                        // enable this for clock time
+                        // tickFormatter={(unixTime) =>
+                        //   new Date(unixTime).toLocaleTimeString()
+                        // }
+                        tickFormatter={(unixTime) => {
+                          const seconds = Math.round(
+                            (Date.now() - unixTime) / 1000
+                          );
+                          return seconds <= 60 ? `${60 - seconds}s` : "";
+                        }}
+                        tick={{ fontSize: 12 }}
+                        ticks={[...Array(7)].map(
+                          (_, i) => Date.now() - (60 - i * 10) * 1000
+                        )}
+                      />
+                      <YAxis
+                        tick={{ fontSize: 12 }}
+                        domain={[0, 100]}
+                        tickFormatter={(value) => `${value}%`}
+                      />
+                      <Tooltip
+                        // enable this for clock time
+                        // labelFormatter={(label) =>
+                        //   new Date(label).toLocaleTimeString()
+                        // }
+                        labelFormatter={(unixTime) => {
+                          const seconds = Math.round(
+                            (Date.now() - unixTime) / 1000
+                          );
+                          return `${60 - seconds} seconds ago`;
+                        }}
+                        formatter={(value) => [
+                          `${Number(value).toFixed(2)}%`,
+                          "Usage",
+                        ]}
+                      />
 
-                    <Area type="linear" dataKey={"usage"} />
-                  </AreaChart>
+                      <Area
+                        isAnimationActive={false}
+                        type="natural"
+                        dataKey={"usage"}
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
                 </div>
               ))}
             </div>
           )}
+
+          <div className="mt-5">
+            <h3 className="text-md">Cache sizes</h3>
+            <ul>
+              {cpuInfo?.cache_sizes.map(([name, size]) => (
+                <li key={name}>
+                  <span className="font-semibold">{name}</span>:{" "}
+                  {formatSize(size)}
+                </li>
+              ))}
+            </ul>
+          </div>
         </CardContent>
       </Card>
     </div>
   );
 };
+
+function formatSize(bytes: number) {
+  const KB = 1024;
+  const MB = KB * 1024;
+  const GB = MB * 1024;
+
+  if (bytes >= GB) {
+    return `${(bytes / GB).toFixed(2)} GB`;
+  } else if (bytes >= MB) {
+    return `${(bytes / MB).toFixed(2)} MB`;
+  } else if (bytes >= KB) {
+    return `${(bytes / KB).toFixed(2)} KB`;
+  } else {
+    return `${bytes} B`;
+  }
+}
