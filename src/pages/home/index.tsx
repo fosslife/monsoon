@@ -99,7 +99,7 @@ function secondsToHumanTime(seconds: number) {
   const minutes = Math.floor((seconds % 3600) / 60);
   const secs = Math.floor(seconds % 60);
 
-  return `${days} days ${hours} hours ${minutes} minutes ${secs} seconds`;
+  return `${days}d ${hours}h ${minutes}m ${secs}s`;
 }
 
 function bootTimeFromSeconds(seconds: number) {

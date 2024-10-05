@@ -7,6 +7,7 @@ import { Navbar } from "./components/navbar/Navbar";
 import { Routes, Route } from "react-router-dom";
 import { Home } from "./pages/home";
 import { CPU } from "./pages/cpu";
+import { Memory } from "./pages/memory";
 
 function App() {
   return (
@@ -21,6 +22,7 @@ function App() {
             <Routes>
               <Route path="/" element={<Home />} />
               <Route path="/cpu" element={<CPU />} />
+              <Route path="/memory" element={<Memory />} />
             </Routes>
           </div>
         </ResizablePanel>

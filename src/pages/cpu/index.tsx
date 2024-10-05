@@ -1,4 +1,10 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
 import { Checkbox } from "@/components/ui/checkbox";
 import { invoke, Channel } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
@@ -18,6 +24,7 @@ type CPUInfo = {
   physical_cores: number;
   logical_cores: number;
   cache_sizes: [string, number][];
+  features: string[];
 };
 
 type CoreInfo = {
@@ -25,6 +32,7 @@ type CoreInfo = {
   core_name: string;
   core_usage: number;
   frequency: number;
+  global_usage: number;
 };
 
 type CoreHistory = {
@@ -78,12 +86,10 @@ export const CPU = () => {
 
   useEffect(() => {
     let unlisten = listen<CPUInfo>("cpu_info", ({ payload }) => {
-      console.log("cpu_info", payload);
       setCpuInfo(payload);
     });
 
     return () => {
-      console.log("unlisten");
       unlisten.then((f) => f());
     };
   }, []);
@@ -100,7 +106,18 @@ export const CPU = () => {
     <div>
       <Card>
         <CardHeader>
-          <CardTitle className="text-xl">{cpuInfo?.cpu_brand}</CardTitle>
+          <CardTitle className="text-xl flex items-center justify-between">
+            {cpuInfo?.cpu_brand}
+            <div className="flex items-center gap-1">
+              <Checkbox
+                value={realtimeMode ? "on" : "off"}
+                onClick={() => {
+                  setRealtimeMode(!realtimeMode);
+                }}
+              />{" "}
+              <p className="text-sm text-muted-foreground">Per core</p>
+            </div>
+          </CardTitle>
 
           <div className="flex gap-2">
             {" "}
@@ -112,13 +129,9 @@ export const CPU = () => {
             </span>
           </div>
           <div className="flex gap-2 items-center">
-            <Checkbox
-              value={realtimeMode ? "on" : "off"}
-              onClick={() => {
-                setRealtimeMode(!realtimeMode);
-              }}
-            />{" "}
-            <p className="text-sm text-muted-foreground">Overview mode</p>
+            <p className="text-sm">
+              Utilzation: {Math.round(coreInfo[0]?.global_usage)}%
+            </p>
           </div>
         </CardHeader>
         <CardContent>
@@ -237,15 +250,31 @@ export const CPU = () => {
           )}
 
           <div className="mt-5">
-            <h3 className="text-md">Cache sizes</h3>
-            <ul>
-              {cpuInfo?.cache_sizes.map(([name, size]) => (
-                <li key={name}>
-                  <span className="font-semibold">{name}</span>:{" "}
-                  {formatSize(size)}
-                </li>
-              ))}
-            </ul>
+            <Accordion type="single" collapsible defaultValue="cache">
+              <AccordionItem value="cache">
+                <AccordionTrigger>Cache</AccordionTrigger>
+                <AccordionContent>
+                  <ul>
+                    {cpuInfo?.cache_sizes.map(([name, size]) => (
+                      <li key={name}>
+                        <span className="font-semibold">{name}</span>:{" "}
+                        {formatSize(size)}
+                      </li>
+                    ))}
+                  </ul>
+                </AccordionContent>
+              </AccordionItem>
+              <AccordionItem value="cpu_features">
+                <AccordionTrigger>CPU Features</AccordionTrigger>
+                <AccordionContent>
+                  <div className="flex gap-2 flex-wrap">
+                    {cpuInfo?.features.map((f) => (
+                      <span className="text-sm">{f}</span>
+                    ))}
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
+            </Accordion>
           </div>
         </CardContent>
       </Card>
