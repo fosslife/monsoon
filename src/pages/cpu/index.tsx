@@ -164,10 +164,10 @@ export const CPU = () => {
             </ResponsiveContainer>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-              {coresHistory.map((core) => (
+              {coresHistory.map((core, i) => (
                 <div
-                  key={core.core_name}
-                  className="bg-white px-1 pt-2 rounded-lg shadow overflow-hidden"
+                  key={i}
+                  className="bg-white px-1 pt-2 rounded-lg shadow overflow-hidden dark:bg-slate-800"
                 >
                   <h3>{core.core_name}</h3>
                   <ResponsiveContainer width={"100%"} height={200}>
@@ -248,15 +248,22 @@ export const CPU = () => {
               ))}
             </div>
           )}
+        </CardContent>
+      </Card>
 
-          <div className="mt-5">
+      <Card className="mt-5">
+        <CardHeader>
+          <CardTitle>Info</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div>
             <Accordion type="single" collapsible defaultValue="cache">
               <AccordionItem value="cache">
                 <AccordionTrigger>Cache</AccordionTrigger>
                 <AccordionContent>
                   <ul>
                     {cpuInfo?.cache_sizes.map(([name, size]) => (
-                      <li key={name}>
+                      <li key={`${name}-${size}`}>
                         <span className="font-semibold">{name}</span>:{" "}
                         {formatSize(size)}
                       </li>
@@ -269,7 +276,9 @@ export const CPU = () => {
                 <AccordionContent>
                   <div className="flex gap-2 flex-wrap">
                     {cpuInfo?.features.map((f) => (
-                      <span className="text-sm">{f}</span>
+                      <span className="text-sm" key={f}>
+                        {f}
+                      </span>
                     ))}
                   </div>
                 </AccordionContent>

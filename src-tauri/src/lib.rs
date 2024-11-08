@@ -9,7 +9,10 @@ use std::{
 
 use raw_cpuid::{CacheType, CpuId, CpuIdReaderNative};
 use serde::Serialize;
-use sysinfo::{Component, Components, CpuRefreshKind, MemoryRefreshKind, RefreshKind, System};
+use sysinfo::{
+    CpuRefreshKind, MemoryRefreshKind, Pid, ProcessRefreshKind, ProcessesToUpdate, RefreshKind,
+    System,
+};
 use tauri::{
     ipc::Channel, AppHandle, Emitter, Listener, Manager, WebviewUrl, WebviewWindowBuilder,
 };
@@ -21,7 +24,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_system_info,
             get_cpu_info,
-            get_memory_info
+            get_memory_info,
+            kill_process,
+            get_processes_info,
         ])
         .setup(|app| {
             WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
@@ -109,6 +114,7 @@ async fn get_cpu_info(app: AppHandle, on_event: Channel<Vec<CoreInfo>>) -> Resul
         System::new_with_specifics(RefreshKind::new().with_cpu(CpuRefreshKind::everything()));
 
     app.listen("stop_cpu_info", move |_event| {
+        println!("stop_cpu_info");
         stop_cpu_flag_clone.store(true, Ordering::SeqCst);
     });
 
@@ -482,32 +488,135 @@ struct MemInfo {
     total: u64,
     free: u64,
     available: u64,
-    buffers: u64,
-    cached: u64,
     swap_total: u64,
     swap_free: u64,
 }
 
 #[tauri::command]
-async fn get_memory_info(app: AppHandle, on_event: Channel<Vec<CoreInfo>>) -> Result<(), String> {
+async fn get_memory_info(app: AppHandle, on_event: Channel<MemInfo>) -> Result<(), String> {
+    println!("get_memory_info");
     let mut sys =
         System::new_with_specifics(RefreshKind::new().with_memory(MemoryRefreshKind::everything()));
 
-    // test
-    let components = Components::new_with_refreshed_list();
-    println!("Components:");
-    for component in &components {
-        println!("{component:?}");
+    let stop_memory_flag = Arc::new(AtomicBool::new(false));
+    let stop_memory_flag_clone = stop_memory_flag.clone();
+
+    app.listen("stop_memory_info", move |_event| {
+        println!("stop_memory_info");
+        stop_memory_flag_clone.store(true, Ordering::SeqCst);
+    });
+
+    loop {
+        if stop_memory_flag.load(Ordering::SeqCst) {
+            break Ok(());
+        }
+
+        sys.refresh_memory();
+
+        let total = sys.total_memory();
+        let free = sys.free_memory();
+        let available = sys.available_memory();
+        let swap_total = sys.total_swap();
+        let swap_free = sys.free_swap();
+
+        let mem_info = MemInfo {
+            total,
+            free,
+            available,
+            swap_total,
+            swap_free,
+        };
+
+        on_event.send(mem_info).unwrap();
+
+        std::thread::sleep(Duration::from_secs(1))
     }
+}
 
-    Ok(())
+#[derive(Debug, Serialize, Clone)]
+struct ProcessInfo {
+    pid: u32,
+    name: String,
+    cmd: Vec<String>,
+    exe: String,
+    memory: u64,
+    cpu_usage: f32,
+    // user_id: u32,
+    // cwd: String,
+    // root: String,
+    run_time: u64,
+    virtual_memory: u64,
+    parent: u32,
+    status: String,
+}
 
-    // loop {
-    //     let total_memory = sys.total_memory();
-    //     let available_memory = sys.available_memory();
-    //     let free_swap = sys.free_swap();
-    //     let total_swap = sys.total_swap();
-    //     let used_memory = sys.used_memory();
-    //     let used_swap = sys.used_swap();
-    // }
+#[tauri::command]
+async fn get_processes_info(
+    app: AppHandle,
+    on_event: Channel<Vec<ProcessInfo>>,
+) -> Result<(), String> {
+    println!("get_processes_info");
+    let mut sys = System::new_with_specifics(
+        RefreshKind::new().with_processes(ProcessRefreshKind::everything()),
+    );
+
+    let stop_processes_flag = Arc::new(AtomicBool::new(false));
+    let stop_processes_flag_clone = stop_processes_flag.clone();
+
+    app.listen("stop_processes_info", move |_event| {
+        println!("stop_processes_info");
+        stop_processes_flag_clone.store(true, Ordering::SeqCst);
+    });
+
+    loop {
+        if stop_processes_flag.load(Ordering::SeqCst) {
+            break Ok(());
+        }
+
+        sys.refresh_processes(ProcessesToUpdate::All, true);
+
+        let mut processes: Vec<ProcessInfo> = vec![];
+
+        for (pid, process) in sys.processes() {
+            let process_info = ProcessInfo {
+                pid: pid.as_u32(),
+                name: process.name().to_string_lossy().to_string(),
+                cmd: process
+                    .cmd()
+                    .iter()
+                    .map(|s| s.to_string_lossy().to_string())
+                    .collect(),
+                exe: process
+                    .exe()
+                    .is_some()
+                    .then(|| process.exe().unwrap().to_string_lossy().to_string())
+                    .unwrap_or_else(|| "Unknown".to_string()),
+                cpu_usage: process.cpu_usage(),
+                memory: process.memory(),
+                run_time: process.run_time(),
+                virtual_memory: process.virtual_memory(),
+                parent: process.parent().map(|p| p.as_u32()).unwrap_or(0),
+                status: process.status().to_string(),
+            };
+
+            processes.push(process_info);
+        }
+
+        on_event.send(processes).unwrap();
+
+        std::thread::sleep(Duration::from_secs(1))
+    }
+}
+
+#[tauri::command]
+async fn kill_process(pid: usize) -> Result<(), String> {
+    let sys = System::new_with_specifics(
+        RefreshKind::new().with_processes(ProcessRefreshKind::everything()),
+    );
+    if let Some(process) = sys.process(Pid::from(pid)) {
+        process.kill();
+        Ok(())
+    } else {
+        Err("Process not found".to_string())
+    }
 }

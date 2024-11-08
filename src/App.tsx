@@ -8,26 +8,31 @@ import { Routes, Route } from "react-router-dom";
 import { Home } from "./pages/home";
 import { CPU } from "./pages/cpu";
 import { Memory } from "./pages/memory";
+import { Processes } from "./pages/processes";
+import { ThemeProvider } from "@/components/theme-provider";
 
 function App() {
   return (
-    <div className="h-full">
-      <ResizablePanelGroup direction="horizontal">
-        <ResizablePanel defaultSize={12} maxSize={16}>
-          <Navbar />
-        </ResizablePanel>
-        <ResizableHandle />
-        <ResizablePanel>
-          <div className="h-full p-3 overflow-auto">
-            <Routes>
-              <Route path="/" element={<Home />} />
-              <Route path="/cpu" element={<CPU />} />
-              <Route path="/memory" element={<Memory />} />
-            </Routes>
-          </div>
-        </ResizablePanel>
-      </ResizablePanelGroup>
-    </div>
+    <ThemeProvider>
+      <div className="h-full">
+        <ResizablePanelGroup direction="horizontal">
+          <ResizablePanel maxSize={16}>
+            <Navbar />
+          </ResizablePanel>
+          <ResizableHandle />
+          <ResizablePanel>
+            <div className="h-full p-3 overflow-auto">
+              <Routes>
+                <Route path="/" element={<Home />} />
+                <Route path="/cpu" element={<CPU />} />
+                <Route path="/memory" element={<Memory />} />
+                <Route path="/process" element={<Processes />} />
+              </Routes>
+            </div>
+          </ResizablePanel>
+        </ResizablePanelGroup>
+      </div>
+    </ThemeProvider>
   );
 }
 

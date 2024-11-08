@@ -37,7 +37,7 @@ export const Navbar = () => {
   };
 
   return (
-    <div className="flex flex-col gap-0 bg-slate-100 h-full ">
+    <div className="flex flex-col gap-0 bg-slate-100 h-full dark:bg-slate-800 transition-colors duration-300 ">
       {routes.map((route) => (
         <div
           onClick={() => handleClick(route.to)}
@@ -45,8 +45,8 @@ export const Navbar = () => {
           className={clsx(
             "flex gap-2 text-sm items-center cursor-pointer p-3 pl-2 select-none",
             {
-              "text-gray-950 bg-slate-200": location.pathname === route.to,
-              "text-slate-800": location.pathname !== route.to,
+              "text-gray-950 bg-slate-200 dark:bg-slate-700 dark:text-slate-100 transition-colors duration-300": location.pathname === route.to,
+              "text-slate-800 dark:text-slate-100 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors duration-300": location.pathname !== route.to,
             }
           )}
         >
