@@ -10,8 +10,19 @@
     "frontendDist": "../dist"
   },
   "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Monsoon",
+        "width": 1100,
+        "height": 720,
+        "minWidth": 800,
+        "minHeight": 560,
+        "center": true
+      }
+    ],
     "security": {
-      "csp": null
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost"
     }
   },
   "bundle": {

@@ -1,128 +1,115 @@
-import { invoke } from "@tauri-apps/api/core";
-import { Channel } from "@tauri-apps/api/core";
-import { emit } from "@tauri-apps/api/event";
-import { useEffect, useState } from "react";
-import {
-  ResponsiveContainer,
-  AreaChart,
-  Area,
-  XAxis,
-  YAxis,
-  Tooltip,
-} from "recharts";
+import { useCallback, useState } from "react";
 
-type MemInfo = {
-  total: number;
-  free: number;
-  available: number;
-  swap_total: number;
-  swap_free: number;
-};
+import { StatMeter } from "@/components/stat-meter";
+import { UsageChart, type UsagePoint } from "@/components/usage-chart";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useRollingHistory } from "@/hooks/use-rolling-history";
+import { useStream } from "@/hooks/use-stream";
+import { formatBytes, formatPercent } from "@/lib/format";
+import type { MemorySnapshot } from "@/types/system";
+
+const MEMORY_COLOR = "var(--chart-2)";
+const SWAP_COLOR = "var(--chart-4)";
 
 const Memory = () => {
-  const [memInfo, setMemInfo] = useState<MemInfo[]>([]);
+  const [latest, setLatest] = useState<MemorySnapshot | null>(null);
+  const [history, pushHistory] = useRollingHistory<number>(60);
 
-  useEffect(() => {
-    const onEvent = new Channel<MemInfo>();
-    onEvent.onmessage = (mem) => {
-      setMemInfo((prevMemInfo) => {
-        const newMemInfo = [...prevMemInfo, mem];
-        return newMemInfo.slice(-60);
-      });
-    };
-    invoke("get_memory_info", { onEvent });
-    return () => {
-      console.log("stop_memory_info");
-      emit("stop_memory_info");
-    };
-  }, []);
+  useStream<MemorySnapshot>(
+    "memory",
+    useCallback(
+      (snapshot) => {
+        setLatest(snapshot);
+        pushHistory(
+          snapshot.total > 0 ? (snapshot.used / snapshot.total) * 100 : 0,
+        );
+      },
+      [pushHistory],
+    ),
+  );
 
-  // Transform the data array to include percentage calculations
-  const data = memInfo.map((mem, index) => ({
-    seconds: index, // Use array index as seconds
-    usage: ((mem.total - mem.available) / mem.total) * 100,
+  const points: UsagePoint[] = history.map((value, index) => ({
+    age: history.length - 1 - index,
+    value,
   }));
 
-  return (
-    <div>
-      <ResponsiveContainer width="100%" height={300}>
-        <AreaChart
-          data={data}
-          margin={{ top: 10, right: 30, left: 0, bottom: 20 }}
-        >
-          <defs>
-            <linearGradient id="memoryGradient" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="5%" stopColor="#82ca9d" stopOpacity={0.8} />
-              <stop offset="95%" stopColor="#82ca9d" stopOpacity={0} />
-            </linearGradient>
-          </defs>
-          <XAxis
-            dataKey="seconds"
-            type="number"
-            domain={[0, 59]}
-            ticks={[0, 15, 30, 45, 59]} // Show ticks at these intervals
-            tickFormatter={(value) => `${value}s`}
-            label={{
-              value: "Time (seconds)",
-              position: "bottom",
-              offset: 5,
-            }}
-            axisLine={{ stroke: "#E5E7EB" }}
-            tickLine={false}
-          />
-          <YAxis
-            domain={[0, 100]}
-            ticks={[0, 25, 50, 75, 100]}
-            tickFormatter={(value) => `${value}%`}
-            axisLine={{ stroke: "#E5E7EB" }}
-            tickLine={false}
-            label={{
-              value: "Memory Usage (%)",
-              angle: -90,
-              position: "insideLeft",
-            }}
-          />
-          <Tooltip
-            formatter={(value) => [
-              `${Number(value).toFixed(2)}%`,
-              "Memory Usage",
-            ]}
-            labelFormatter={(label) => `${label}s`}
-          />
-          <Area
-            type="monotone"
-            dataKey="usage"
-            stroke="#82ca9d"
-            fill="url(#memoryGradient)"
-          />
-        </AreaChart>
-      </ResponsiveContainer>
+  const usedPercent =
+    latest && latest.total > 0 ? (latest.used / latest.total) * 100 : null;
 
-      {memInfo.length > 0 && (
-        <div className="flex flex-col gap-2">
-          <p>Total: {formatSize(memInfo[memInfo.length - 1].total)}</p>
-          <p>Free: {formatSize(memInfo[memInfo.length - 1].free)}</p>
-          <p>
-            Swap Total: {formatSize(memInfo[memInfo.length - 1].swap_total)}
-          </p>
-          <p>Swap Free: {formatSize(memInfo[memInfo.length - 1].swap_free)}</p>
-        </div>
-      )}
+  return (
+    <div className="flex flex-col gap-4">
+      <header className="flex flex-col gap-1">
+        <h1 className="text-lg font-semibold">Memory</h1>
+        <p className="text-sm text-muted-foreground">
+          RAM and swap usage, sampled every second.
+        </p>
+      </header>
+
+      <Card>
+        <CardHeader className="flex flex-row items-baseline justify-between space-y-0">
+          <CardTitle className="text-base">RAM</CardTitle>
+          <span className="stat-figure text-2xl font-semibold">
+            {usedPercent === null ? "…" : formatPercent(usedPercent)}
+          </span>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-6">
+          <UsageChart
+            points={points}
+            color={MEMORY_COLOR}
+            valueLabel="Memory"
+          />
+          {latest && (
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+              <StatMeter
+                label="Used"
+                display={`${formatBytes(latest.used)} / ${formatBytes(latest.total)}`}
+                value={latest.used}
+                max={latest.total}
+                color={MEMORY_COLOR}
+              />
+              <StatMeter
+                label="Available"
+                display={formatBytes(latest.available)}
+                value={latest.available}
+                max={latest.total}
+                color="var(--chart-3)"
+              />
+              <StatMeter
+                label="Free"
+                display={formatBytes(latest.free)}
+                value={latest.free}
+                max={latest.total}
+                color="var(--chart-1)"
+              />
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Swap</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {latest === null ? (
+            <p className="text-sm text-muted-foreground">Waiting for data…</p>
+          ) : latest.swap_total === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              No swap is configured on this system.
+            </p>
+          ) : (
+            <StatMeter
+              label="Used"
+              display={`${formatBytes(latest.swap_used)} / ${formatBytes(latest.swap_total)}`}
+              value={latest.swap_used}
+              max={latest.swap_total}
+              color={SWAP_COLOR}
+            />
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 };
-
-function formatSize(bytes: number) {
-  const KB = 1024;
-  const MB = KB * 1024;
-  const GB = MB * 1024;
-
-  if (bytes >= GB) {
-    return `${(bytes / GB).toFixed(2)} GB`;
-  } else if (bytes >= MB) {
-    return `${(bytes / MB).toFixed(2)} MB`;
-  }
-  return `${bytes} B`;
-}
 
 export { Memory };

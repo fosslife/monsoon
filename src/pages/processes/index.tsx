@@ -1,5 +1,34 @@
-import { Channel, invoke } from "@tauri-apps/api/core";
-import { emit } from "@tauri-apps/api/event";
+import {
+  IconArrowDown,
+  IconArrowUp,
+  IconColumns3,
+  IconPlayerPause,
+  IconPlayerPlay,
+  IconTrash,
+  IconX,
+} from "@tabler/icons-react";
+import { invoke } from "@tauri-apps/api/core";
+import { useDeferredValue, useMemo, useState, type ReactNode } from "react";
+
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
 import {
   Table,
   TableBody,
@@ -8,417 +37,336 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Input } from "@/components/ui/input";
-import { useEffect, useState } from "react";
-import { Button } from "@/components/ui/button";
-import { ListIcon, Trash2Icon } from "lucide-react";
+import { useStream } from "@/hooks/use-stream";
+import { formatBytes, formatDuration, formatPercent } from "@/lib/format";
+import { cn } from "@/lib/utils";
+import type { ProcessInfo } from "@/types/system";
 
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { Checkbox } from "@/components/ui/checkbox";
-import { IconArrowDown, IconArrowUp } from "@tabler/icons-react";
+type SortKey = "pid" | "name" | "cpu_usage" | "memory";
+type SortDirection = "asc" | "desc";
 
-type Process = {
-  pid: number;
-  name: string;
-  cmd: string[];
-  exe: string;
-  cpu_usage: number;
-  memory: number;
-  parent: number;
-  virtual_memory: number;
-  status: string;
-  run_time: number;
+type Column = {
+  id: string;
+  label: string;
+  sortKey?: SortKey;
+  headerClassName?: string;
+  cellClassName?: string;
+  render: (process: ProcessInfo) => ReactNode;
 };
 
+const COLUMNS: Column[] = [
+  {
+    id: "pid",
+    label: "PID",
+    sortKey: "pid",
+    headerClassName: "w-20",
+    cellClassName: "stat-figure",
+    render: (p) => p.pid,
+  },
+  {
+    id: "name",
+    label: "Name",
+    sortKey: "name",
+    cellClassName: "max-w-[220px] truncate font-medium",
+    render: (p) => p.name,
+  },
+  {
+    id: "cpu_usage",
+    label: "CPU %",
+    sortKey: "cpu_usage",
+    headerClassName: "w-24 text-right",
+    cellClassName: "stat-figure text-right",
+    render: (p) => formatPercent(p.cpu_usage),
+  },
+  {
+    id: "memory",
+    label: "Memory",
+    sortKey: "memory",
+    headerClassName: "w-28 text-right",
+    cellClassName: "stat-figure text-right",
+    render: (p) => formatBytes(p.memory),
+  },
+  {
+    id: "virtual_memory",
+    label: "Virtual",
+    headerClassName: "w-28 text-right",
+    cellClassName: "stat-figure text-right",
+    render: (p) => formatBytes(p.virtual_memory),
+  },
+  {
+    id: "cmd",
+    label: "Command",
+    cellClassName: "max-w-[320px] truncate text-muted-foreground",
+    render: (p) => p.cmd.join(" ") || p.exe || "—",
+  },
+  {
+    id: "run_time",
+    label: "Run time",
+    headerClassName: "w-28",
+    cellClassName: "stat-figure",
+    render: (p) => formatDuration(p.run_time),
+  },
+  {
+    id: "parent",
+    label: "Parent",
+    headerClassName: "w-20",
+    cellClassName: "stat-figure",
+    render: (p) => p.parent ?? "—",
+  },
+  {
+    id: "status",
+    label: "Status",
+    headerClassName: "w-24",
+    render: (p) => p.status,
+  },
+];
+
+const DEFAULT_VISIBLE = ["pid", "name", "cpu_usage", "memory", "cmd"];
+
+function compareBy(a: ProcessInfo, b: ProcessInfo, key: SortKey): number {
+  if (key === "name") return a.name.localeCompare(b.name);
+  return a[key] - b[key];
+}
+
 export const Processes = () => {
-  const [processes, setProcesses] = useState<Process[]>([]);
-  const [search, setSearch] = useState<string>("");
-  const [colsToShow, setColsToShow] = useState<string[]>([
-    "name",
-    "pid",
-    "cpu",
-    "memory",
-    "command",
-  ]);
-  const [dropdownOpen, setDropdownOpen] = useState<boolean>(false);
-  const [sortType, setSortType] = useState<"memory" | "cpu" | "name" | "pid">(
-    "cpu"
+  const [processes, setProcesses] = useState<ProcessInfo[]>([]);
+  const [search, setSearch] = useState("");
+  const [visibleColumns, setVisibleColumns] = useState<Set<string>>(
+    () => new Set(DEFAULT_VISIBLE),
   );
-  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
+  const [sortKey, setSortKey] = useState<SortKey>("cpu_usage");
+  const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
+  const [paused, setPaused] = useState(false);
+  const [killTarget, setKillTarget] = useState<ProcessInfo | null>(null);
+  const [killError, setKillError] = useState<string | null>(null);
 
-  useEffect(() => {
-    const onEvent = new Channel<Process[]>();
-    onEvent.onmessage = (processes) => {
-      setProcesses(sortProcesses(processes, sortType, sortDirection));
-    };
-    invoke("get_processes_info", { onEvent });
+  useStream<ProcessInfo[]>("processes", setProcesses, !paused);
 
-    return () => {
-      emit("stop_processes_info");
-    };
-  }, [sortType, sortDirection]);
+  const deferredSearch = useDeferredValue(search);
 
-  const handleSort = (type: "memory" | "cpu" | "name" | "pid") => {
-    if (type === sortType) {
-      setSortDirection(sortDirection === "asc" ? "desc" : "asc");
+  const rows = useMemo(() => {
+    const needle = deferredSearch.trim().toLowerCase();
+    const filtered = needle
+      ? processes.filter(
+          (p) =>
+            p.name.toLowerCase().includes(needle) ||
+            (p.exe?.toLowerCase().includes(needle) ?? false) ||
+            p.pid.toString().includes(needle) ||
+            p.cmd.join(" ").toLowerCase().includes(needle),
+        )
+      : processes;
+    const direction = sortDirection === "asc" ? 1 : -1;
+    return [...filtered].sort((a, b) => direction * compareBy(a, b, sortKey));
+  }, [processes, deferredSearch, sortKey, sortDirection]);
+
+  const handleSort = (key: SortKey) => {
+    if (key === sortKey) {
+      setSortDirection((prev) => (prev === "asc" ? "desc" : "asc"));
     } else {
-      setSortType(type);
+      setSortKey(key);
       setSortDirection("desc");
     }
   };
 
-  const handleKill = (pid: number) => {
-    invoke("kill_process", { pid });
+  const toggleColumn = (id: string) => {
+    setVisibleColumns((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   };
 
-  console.log("render", processes[0]);
+  const confirmKill = async () => {
+    if (!killTarget) return;
+    try {
+      await invoke("kill_process", { pid: killTarget.pid });
+      setKillError(null);
+    } catch (error) {
+      setKillError(String(error));
+    } finally {
+      setKillTarget(null);
+    }
+  };
+
+  const shownColumns = COLUMNS.filter((column) =>
+    visibleColumns.has(column.id),
+  );
 
   return (
-    <div>
-      <div className="mb-4 flex space-x-2">
+    <div className="flex h-full flex-col gap-4">
+      <header className="flex flex-col gap-1">
+        <h1 className="text-lg font-semibold">Processes</h1>
+        <p className="text-sm text-muted-foreground">
+          {rows.length === processes.length
+            ? `${processes.length} processes`
+            : `${rows.length} of ${processes.length} processes`}
+          {paused && " · paused"}
+        </p>
+      </header>
+
+      {killError && (
+        <div className="flex items-center justify-between rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          <span>{killError}</span>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-6 text-destructive hover:text-destructive"
+            onClick={() => setKillError(null)}
+            aria-label="Dismiss error"
+          >
+            <IconX className="size-4" />
+          </Button>
+        </div>
+      )}
+
+      <div className="flex gap-2">
         <Input
-          type="text"
-          placeholder="Search"
+          type="search"
+          placeholder="Search by name, PID, or command…"
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          onChange={(event) => setSearch(event.target.value)}
+          className="max-w-sm"
         />
-        <DropdownMenu open={dropdownOpen} onOpenChange={setDropdownOpen}>
+        <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button
-              variant="outline"
-              onClick={() => setDropdownOpen(!dropdownOpen)}
-            >
-              <ListIcon className="w-4 h-4" />
+            <Button variant="outline" size="icon" aria-label="Choose columns">
+              <IconColumns3 className="size-4" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent>
+          <DropdownMenuContent align="end">
             <DropdownMenuLabel>Columns</DropdownMenuLabel>
-            <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
-              <Checkbox
-                checked={colsToShow.includes("pid")}
-                onClick={() => {
-                  setColsToShow((prev) =>
-                    prev.includes("pid")
-                      ? prev.filter((col) => col !== "pid")
-                      : [...prev, "pid"]
-                  );
-                }}
-                className="w-4 h-4"
-              />
-              <span>PID</span>
-            </DropdownMenuItem>
-            <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
-              <Checkbox
-                checked={colsToShow.includes("name")}
-                onClick={() => {
-                  setColsToShow((prev) =>
-                    prev.includes("name")
-                      ? prev.filter((col) => col !== "name")
-                      : [...prev, "name"]
-                  );
-                }}
-                className="w-4 h-4"
-              />
-              <span>Name</span>
-            </DropdownMenuItem>
-
-            <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
-              <Checkbox
-                checked={colsToShow.includes("cpu")}
-                onClick={() => {
-                  setColsToShow((prev) =>
-                    prev.includes("cpu")
-                      ? prev.filter((col) => col !== "cpu")
-                      : [...prev, "cpu"]
-                  );
-                }}
-                className="w-4 h-4"
-              />
-              <span>CPU</span>
-            </DropdownMenuItem>
-            <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
-              <Checkbox
-                checked={colsToShow.includes("memory")}
-                onClick={() => {
-                  setColsToShow((prev) =>
-                    prev.includes("memory")
-                      ? prev.filter((col) => col !== "memory")
-                      : [...prev, "memory"]
-                  );
-                }}
-                className="w-4 h-4"
-              />
-              <span>Memory</span>
-            </DropdownMenuItem>
-            <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
-              <Checkbox
-                checked={colsToShow.includes("command")}
-                onClick={() => {
-                  setColsToShow((prev) =>
-                    prev.includes("command")
-                      ? prev.filter((col) => col !== "command")
-                      : [...prev, "command"]
-                  );
-                }}
-                className="w-4 h-4"
-              />
-              <span>Command</span>
-            </DropdownMenuItem>
-            <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
-              <Checkbox
-                checked={colsToShow.includes("run_time")}
-                onClick={() => {
-                  setColsToShow((prev) =>
-                    prev.includes("run_time")
-                      ? prev.filter((col) => col !== "run_time")
-                      : [...prev, "run_time"]
-                  );
-                }}
-                className="w-4 h-4"
-              />
-              <span>Run Time</span>
-            </DropdownMenuItem>
-            <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
-              <Checkbox
-                checked={colsToShow.includes("parent")}
-                onClick={() => {
-                  setColsToShow((prev) =>
-                    prev.includes("parent")
-                      ? prev.filter((col) => col !== "parent")
-                      : [...prev, "parent"]
-                  );
-                }}
-                className="w-4 h-4"
-              />
-              <span>Parent</span>
-            </DropdownMenuItem>
-            <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
-              <Checkbox
-                checked={colsToShow.includes("virtual_memory")}
-                onClick={() => {
-                  setColsToShow((prev) =>
-                    prev.includes("virtual_memory")
-                      ? prev.filter((col) => col !== "virtual_memory")
-                      : [...prev, "virtual_memory"]
-                  );
-                }}
-                className="w-4 h-4"
-              />
-              <span>Virtual Memory</span>
-            </DropdownMenuItem>
+            {COLUMNS.map((column) => (
+              <DropdownMenuCheckboxItem
+                key={column.id}
+                checked={visibleColumns.has(column.id)}
+                onCheckedChange={() => toggleColumn(column.id)}
+                onSelect={(event) => event.preventDefault()}
+              >
+                {column.label}
+              </DropdownMenuCheckboxItem>
+            ))}
           </DropdownMenuContent>
         </DropdownMenu>
-
         <Button
           variant="outline"
-          onClick={() => {
-            console.log("pause");
-            emit("stop_processes_info");
-          }}
+          onClick={() => setPaused((prev) => !prev)}
+          className="gap-2"
         >
-          Pause
+          {paused ? (
+            <IconPlayerPlay className="size-4" />
+          ) : (
+            <IconPlayerPause className="size-4" />
+          )}
+          {paused ? "Resume" : "Pause"}
         </Button>
       </div>
-      <Table>
-        <TableHeader className="bg-gray-100 dark:bg-slate-700">
-          <TableRow>
-            {colsToShow.includes("pid") && (
-              <TableHead
-                className="font-bold cursor-pointer"
-                onClick={() => handleSort("pid")}
-              >
-                <span className="flex items-center gap-1">
-                  PID{" "}
-                  {sortType === "pid" ? (
-                    sortDirection === "asc" ? (
-                      <IconArrowUp size={16} />
-                    ) : (
-                      <IconArrowDown size={16} />
-                    )
+
+      <div className="min-h-0 flex-1 overflow-auto rounded-md border border-border">
+        <Table>
+          <TableHeader className="sticky top-0 z-10 bg-card">
+            <TableRow>
+              {shownColumns.map((column) => (
+                <TableHead
+                  key={column.id}
+                  className={cn("whitespace-nowrap", column.headerClassName)}
+                  aria-sort={
+                    column.sortKey === sortKey
+                      ? sortDirection === "asc"
+                        ? "ascending"
+                        : "descending"
+                      : undefined
+                  }
+                >
+                  {column.sortKey ? (
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-1 font-semibold hover:text-foreground"
+                      onClick={() => handleSort(column.sortKey as SortKey)}
+                    >
+                      {column.label}
+                      {column.sortKey === sortKey &&
+                        (sortDirection === "asc" ? (
+                          <IconArrowUp className="size-3.5" />
+                        ) : (
+                          <IconArrowDown className="size-3.5" />
+                        ))}
+                    </button>
                   ) : (
-                    ""
+                    <span className="font-semibold">{column.label}</span>
                   )}
-                </span>
+                </TableHead>
+              ))}
+              <TableHead className="w-14 text-right font-semibold">
+                <span className="sr-only">Actions</span>
               </TableHead>
-            )}
-            {colsToShow.includes("name") && (
-              <TableHead
-                className="font-bold cursor-pointer"
-                onClick={() => handleSort("name")}
-              >
-                <span className="flex items-center gap-1">
-                  Name{" "}
-                  {sortType === "name" ? (
-                    sortDirection === "asc" ? (
-                      <IconArrowUp size={16} />
-                    ) : (
-                      <IconArrowDown size={16} />
-                    )
-                  ) : (
-                    ""
-                  )}
-                </span>
-              </TableHead>
-            )}
-            {colsToShow.includes("cpu") && (
-              <TableHead
-                className="font-bold cursor-pointer"
-                onClick={() => handleSort("cpu")}
-              >
-                <span className="flex items-center gap-1">
-                  CPU{" "}
-                  {sortType === "cpu" ? (
-                    sortDirection === "asc" ? (
-                      <IconArrowUp size={16} />
-                    ) : (
-                      <IconArrowDown size={16} />
-                    )
-                  ) : (
-                    ""
-                  )}
-                </span>
-              </TableHead>
-            )}
-            {colsToShow.includes("memory") && (
-              <TableHead
-                className="font-bold cursor-pointer"
-                onClick={() => handleSort("memory")}
-              >
-                <span className="flex items-center gap-1">
-                  Memory{" "}
-                  {sortType === "memory" ? (
-                    sortDirection === "asc" ? (
-                      <IconArrowUp size={16} />
-                    ) : (
-                      <IconArrowDown size={16} />
-                    )
-                  ) : (
-                    ""
-                  )}
-                </span>
-              </TableHead>
-            )}
-            {colsToShow.includes("command") && (
-              <TableHead className="font-bold">
-                <span>Command</span>
-              </TableHead>
-            )}
-            {colsToShow.includes("run_time") && (
-              <TableHead className="font-bold">
-                <span>Run Time</span>
-              </TableHead>
-            )}
-            {colsToShow.includes("parent") && (
-              <TableHead className="font-bold">
-                <span>Parent</span>
-              </TableHead>
-            )}
-            {colsToShow.includes("virtual_memory") && (
-              <TableHead className="font-bold">
-                <span>Virtual Memory</span>
-              </TableHead>
-            )}
-            <TableHead className="font-bold">Kill</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {processes
-            .filter(
-              (process) =>
-                process.name.toLowerCase().includes(search.toLowerCase()) ||
-                process.exe.toLowerCase().includes(search.toLowerCase()) ||
-                process.pid.toString().includes(search)
-            )
-            .map((process) => (
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {rows.map((process) => (
               <TableRow key={process.pid}>
-                {colsToShow.includes("pid") && (
-                  <TableCell>{process.pid}</TableCell>
-                )}
-                {colsToShow.includes("name") && (
-                  <TableCell>{process.name}</TableCell>
-                )}
-                {colsToShow.includes("cpu") && (
-                  <TableCell>{Number(process.cpu_usage).toFixed(2)}%</TableCell>
-                )}
-                {colsToShow.includes("memory") && (
-                  <TableCell>{formatSize(process.memory)}</TableCell>
-                )}
-                {colsToShow.includes("command") && (
+                {shownColumns.map((column) => (
                   <TableCell
-                    className="max-w-[200px] truncate"
-                    title={process.cmd.join(" ")}
+                    key={column.id}
+                    className={cn("py-1.5", column.cellClassName)}
+                    title={
+                      column.id === "cmd"
+                        ? process.cmd.join(" ") || (process.exe ?? undefined)
+                        : undefined
+                    }
                   >
-                    {process.cmd.join(" ")}
+                    {column.render(process)}
                   </TableCell>
-                )}
-                {colsToShow.includes("run_time") && (
-                  <TableCell>{formatTime(process.run_time)}</TableCell>
-                )}
-                {colsToShow.includes("parent") && (
-                  <TableCell>{process.parent}</TableCell>
-                )}
-                {colsToShow.includes("virtual_memory") && (
-                  <TableCell>{formatSize(process.virtual_memory)}</TableCell>
-                )}
-                <TableCell>
+                ))}
+                <TableCell className="py-1.5 text-right">
                   <Button
-                    variant="outline"
+                    variant="ghost"
                     size="icon"
-                    onClick={() => handleKill(process.pid)}
+                    className="size-7 text-muted-foreground hover:text-destructive"
+                    onClick={() => setKillTarget(process)}
+                    aria-label={`Kill ${process.name}`}
                   >
-                    <Trash2Icon className="w-4 h-4" />
+                    <IconTrash className="size-4" />
                   </Button>
                 </TableCell>
               </TableRow>
             ))}
-        </TableBody>
-      </Table>
+          </TableBody>
+        </Table>
+      </div>
+
+      <AlertDialog
+        open={killTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setKillTarget(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Kill this process?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {killTarget && (
+                <>
+                  <span className="font-medium text-foreground">
+                    {killTarget.name}
+                  </span>{" "}
+                  (PID {killTarget.pid}) will be terminated. Unsaved work in
+                  that application may be lost.
+                </>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => void confirmKill()}
+            >
+              Kill process
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };
-
-function formatTime(seconds: number) {
-  const hours = Math.floor(seconds / 3600);
-  const minutes = Math.floor((seconds % 3600) / 60);
-  return `${hours}h ${minutes}m`;
-}
-
-function formatSize(bytes: number) {
-  const KB = 1024;
-  const MB = KB * 1024;
-  const GB = MB * 1024;
-
-  if (bytes >= GB) {
-    return `${(bytes / GB).toFixed(2)} GB`;
-  } else if (bytes >= MB) {
-    return `${(bytes / MB).toFixed(2)} MB`;
-  }
-  return `${bytes} B`;
-}
-
-function sortProcesses(
-  processes: Process[],
-  sortType: "memory" | "cpu" | "name" | "pid",
-  direction: "asc" | "desc"
-): Process[] {
-  const sortedProcesses = [...processes].sort((a, b) => {
-    switch (sortType) {
-      case "memory":
-        return b.memory - a.memory;
-      case "cpu":
-        return b.cpu_usage - a.cpu_usage;
-      case "name":
-        return a.name.localeCompare(b.name);
-      case "pid":
-        return a.pid - b.pid;
-    }
-  });
-
-  return direction === "asc" ? sortedProcesses.reverse() : sortedProcesses;
-}

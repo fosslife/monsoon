@@ -1,308 +1,216 @@
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { invoke } from "@tauri-apps/api/core";
+import { useCallback, useEffect, useMemo, useState } from "react";
+
+import { UsageChart, type UsagePoint } from "@/components/usage-chart";
 import {
   Accordion,
   AccordionContent,
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
-import { Checkbox } from "@/components/ui/checkbox";
-import { invoke, Channel } from "@tauri-apps/api/core";
-import { emit, listen } from "@tauri-apps/api/event";
-import {
-  AreaChart,
-  Area,
-  XAxis,
-  YAxis,
-  Tooltip,
-  ResponsiveContainer,
-  CartesianGrid,
-} from "recharts";
-import { useEffect, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useRollingHistory } from "@/hooks/use-rolling-history";
+import { useStream } from "@/hooks/use-stream";
+import { formatBytes, formatFrequency, formatPercent } from "@/lib/format";
+import type { CpuSnapshot, CpuStatic } from "@/types/system";
 
-type CPUInfo = {
-  cpu_brand: string;
-  physical_cores: number;
-  logical_cores: number;
-  cache_sizes: [string, number][];
-  features: string[];
-};
-
-type CoreInfo = {
-  core_id: number;
-  core_name: string;
-  core_usage: number;
-  frequency: number;
-  global_usage: number;
-};
-
-type CoreHistory = {
-  core_name: string;
-  data: {
-    timestamp: number;
-    usage: number;
-    frequency: number;
-  }[];
-};
-
-type CoresHistoryState = CoreHistory[];
+const CPU_COLOR = "var(--chart-1)";
 
 export const CPU = () => {
-  const [cpuInfo, setCpuInfo] = useState<CPUInfo | null>(null);
-  const [coreInfo, setCoreInfo] = useState<CoreInfo[]>([]);
-  const [coresHistory, setCoresHistory] = useState<CoresHistoryState>([]);
-  const [realtimeMode, setRealtimeMode] = useState(true);
-
-  const onEvent = new Channel<CoreInfo[]>();
-
-  onEvent.onmessage = (coreInfo) => {
-    setCoreInfo(coreInfo);
-
-    setCoresHistory((prevHistory) => {
-      const now = Date.now();
-      return coreInfo.map((coreInfo) => {
-        const existingCore = prevHistory.find(
-          (core) => core.core_name === coreInfo.core_name
-        );
-        const newData = {
-          timestamp: now,
-          usage: coreInfo.core_usage,
-          frequency: coreInfo.frequency,
-        };
-
-        if (existingCore) {
-          return {
-            ...existingCore,
-            data: [...existingCore.data, newData].slice(-60), // Keep last 60 seconds
-          };
-        } else {
-          return {
-            core_name: coreInfo.core_name,
-            data: [newData],
-          };
-        }
-      });
-    });
-  };
+  const [statics, setStatics] = useState<CpuStatic | null>(null);
+  const [latest, setLatest] = useState<CpuSnapshot | null>(null);
+  const [history, pushHistory] = useRollingHistory<CpuSnapshot>(60);
+  const [view, setView] = useState<"overall" | "cores">("overall");
 
   useEffect(() => {
-    let unlisten = listen<CPUInfo>("cpu_info", ({ payload }) => {
-      setCpuInfo(payload);
+    invoke<CpuStatic>("get_cpu_static")
+      .then(setStatics)
+      .catch((error: unknown) => console.error("get_cpu_static failed", error));
+  }, []);
+
+  useStream<CpuSnapshot>(
+    "cpu",
+    useCallback(
+      (snapshot) => {
+        setLatest(snapshot);
+        pushHistory(snapshot);
+      },
+      [pushHistory],
+    ),
+  );
+
+  const overallPoints: UsagePoint[] = useMemo(
+    () =>
+      history.map((snapshot, index) => ({
+        age: history.length - 1 - index,
+        value: snapshot.global_usage,
+      })),
+    [history],
+  );
+
+  const corePoints = useMemo(() => {
+    if (view !== "cores") return [];
+    const byCore = new Map<string, UsagePoint[]>();
+    history.forEach((snapshot, index) => {
+      const age = history.length - 1 - index;
+      for (const core of snapshot.cores) {
+        const points = byCore.get(core.name) ?? [];
+        points.push({ age, value: core.usage });
+        byCore.set(core.name, points);
+      }
     });
+    return [...byCore.entries()];
+  }, [history, view]);
 
-    return () => {
-      unlisten.then((f) => f());
-    };
-  }, []);
+  const averageFrequency = useMemo(() => {
+    if (!latest || latest.cores.length === 0) return null;
+    const total = latest.cores.reduce((sum, core) => sum + core.frequency, 0);
+    return total / latest.cores.length;
+  }, [latest]);
 
-  useEffect(() => {
-    invoke<CPUInfo>("get_cpu_info", { onEvent });
-
-    return () => {
-      emit("stop_cpu_info");
-    };
-  }, []);
+  const coreByName = useMemo(
+    () => new Map(latest?.cores.map((core) => [core.name, core]) ?? []),
+    [latest],
+  );
 
   return (
-    <div>
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-xl flex items-center justify-between">
-            {cpuInfo?.cpu_brand}
-            <div className="flex items-center gap-1">
-              <Checkbox
-                value={realtimeMode ? "on" : "off"}
-                onClick={() => {
-                  setRealtimeMode(!realtimeMode);
-                }}
-              />{" "}
-              <p className="text-sm text-muted-foreground">Per core</p>
-            </div>
-          </CardTitle>
+    <div className="flex flex-col gap-4">
+      <header className="flex flex-col gap-1">
+        <h1 className="text-lg font-semibold">CPU</h1>
+        <p className="text-sm text-muted-foreground">
+          {statics?.brand ?? "Detecting processor…"}
+        </p>
+      </header>
 
-          <div className="flex gap-2">
-            {" "}
-            <span className="text-xs text-slate-500">
-              Logical cores: {cpuInfo?.logical_cores}
-            </span>
-            <span className="text-xs text-slate-500">
-              Physical cores: {cpuInfo?.physical_cores}
-            </span>
+      <Card>
+        <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3 space-y-0">
+          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            {statics && (
+              <>
+                <span className="rounded-md bg-muted px-2 py-1">
+                  {statics.physical_cores} physical / {statics.logical_cores}{" "}
+                  logical cores
+                </span>
+                {averageFrequency !== null && (
+                  <span className="stat-figure rounded-md bg-muted px-2 py-1">
+                    {formatFrequency(averageFrequency)} avg
+                  </span>
+                )}
+              </>
+            )}
           </div>
-          <div className="flex gap-2 items-center">
-            <p className="text-sm">
-              Utilzation: {Math.round(coreInfo[0]?.global_usage)}%
-            </p>
+          <div className="flex items-center gap-3">
+            <span className="stat-figure text-2xl font-semibold">
+              {latest ? formatPercent(latest.global_usage) : "…"}
+            </span>
+            <div className="flex rounded-md border border-border p-0.5">
+              <Button
+                size="sm"
+                variant={view === "overall" ? "secondary" : "ghost"}
+                className="h-7 px-2 text-xs"
+                onClick={() => setView("overall")}
+              >
+                Overall
+              </Button>
+              <Button
+                size="sm"
+                variant={view === "cores" ? "secondary" : "ghost"}
+                className="h-7 px-2 text-xs"
+                onClick={() => setView("cores")}
+              >
+                Per core
+              </Button>
+            </div>
           </div>
         </CardHeader>
         <CardContent>
-          {realtimeMode ? (
-            <ResponsiveContainer width="100%" height={300}>
-              <AreaChart
-                data={coreInfo}
-                margin={{ top: 10, right: 30, left: 0, bottom: 0 }}
-              >
-                <defs>
-                  <linearGradient id="coreGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#8884d8" stopOpacity={0.8} />
-                    <stop offset="100%" stopColor="#8884d8" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <XAxis dataKey="core_name" />
-                <YAxis
-                  domain={[0, 100]}
-                  tickFormatter={(value) => `${value}%`}
-                />
-                <CartesianGrid strokeDasharray="3 3" />
-                <Tooltip />
-                <Area
-                  type="monotone"
-                  dataKey="core_usage"
-                  stroke="#8884d8"
-                  fill="url(#coreGradient)"
-                />
-              </AreaChart>
-            </ResponsiveContainer>
+          {view === "overall" ? (
+            <UsageChart points={overallPoints} color={CPU_COLOR} height={300} />
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-              {coresHistory.map((core, i) => (
-                <div
-                  key={i}
-                  className="bg-white px-1 pt-2 rounded-lg shadow overflow-hidden dark:bg-slate-800"
-                >
-                  <h3>{core.core_name}</h3>
-                  <ResponsiveContainer width={"100%"} height={200}>
-                    <AreaChart
-                      data={core.data}
-                      margin={{ top: 10, right: 30, left: 0, bottom: 0 }}
-                    >
-                      <defs>
-                        <linearGradient
-                          id={`coreGradient-${core.core_name}`}
-                          x1="0"
-                          y1="0"
-                          x2="0"
-                          y2="1"
-                        >
-                          <stop
-                            offset="5%"
-                            stopColor="#8884d8"
-                            stopOpacity={0.8}
-                          />
-                          <stop
-                            offset="100%"
-                            stopColor="#8884d8"
-                            stopOpacity={0}
-                          />
-                        </linearGradient>
-                      </defs>
-
-                      <XAxis
-                        dataKey="timestamp"
-                        type="number"
-                        domain={["dataMin", "dataMax"]}
-                        // enable this for clock time
-                        // tickFormatter={(unixTime) =>
-                        //   new Date(unixTime).toLocaleTimeString()
-                        // }
-                        tickFormatter={(unixTime) => {
-                          const seconds = Math.round(
-                            (Date.now() - unixTime) / 1000
-                          );
-                          return seconds <= 60 ? `${60 - seconds}s` : "";
-                        }}
-                        tick={{ fontSize: 12 }}
-                        ticks={[...Array(7)].map(
-                          (_, i) => Date.now() - (60 - i * 10) * 1000
-                        )}
-                      />
-                      <YAxis
-                        tick={{ fontSize: 12 }}
-                        domain={[0, 100]}
-                        tickFormatter={(value) => `${value}%`}
-                      />
-                      <Tooltip
-                        // enable this for clock time
-                        // labelFormatter={(label) =>
-                        //   new Date(label).toLocaleTimeString()
-                        // }
-                        labelFormatter={(unixTime) => {
-                          const seconds = Math.round(
-                            (Date.now() - Number(unixTime)) / 1000
-                          );
-                          return `${60 - seconds} seconds ago`;
-                        }}
-                        formatter={(value) => [
-                          `${Number(value).toFixed(2)}%`,
-                          "Usage",
-                        ]}
-                      />
-
-                      <Area
-                        isAnimationActive={false}
-                        type="natural"
-                        dataKey={"usage"}
-                      />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                </div>
-              ))}
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              {corePoints.map(([name, points]) => {
+                const core = coreByName.get(name);
+                return (
+                  <div
+                    key={name}
+                    className="rounded-lg border border-border/60 p-2"
+                  >
+                    <div className="flex items-baseline justify-between px-1 pb-1">
+                      <span className="text-xs font-medium">{name}</span>
+                      <span className="stat-figure text-xs text-muted-foreground">
+                        {core
+                          ? `${formatPercent(core.usage, 0)} · ${formatFrequency(core.frequency)}`
+                          : "…"}
+                      </span>
+                    </div>
+                    <UsageChart
+                      points={points}
+                      color={CPU_COLOR}
+                      height={140}
+                      compact
+                    />
+                  </div>
+                );
+              })}
             </div>
           )}
         </CardContent>
       </Card>
 
-      <Card className="mt-5">
-        <CardHeader>
-          <CardTitle>Info</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div>
-            <Accordion type="single" collapsible defaultValue="cache">
-              <AccordionItem value="cache">
-                <AccordionTrigger>Cache</AccordionTrigger>
-                <AccordionContent>
-                  <ul>
-                    {cpuInfo?.cache_sizes.map(([name, size]) => (
-                      <li key={`${name}-${size}`}>
-                        <span className="font-semibold">{name}</span>:{" "}
-                        {formatSize(size)}
-                      </li>
-                    ))}
-                  </ul>
-                </AccordionContent>
-              </AccordionItem>
-              <AccordionItem value="cpu_features">
-                <AccordionTrigger>CPU Features</AccordionTrigger>
-                <AccordionContent>
-                  <div className="flex gap-2 flex-wrap">
-                    {cpuInfo?.features.map((f) => (
-                      <span className="text-sm" key={f}>
-                        {f}
-                      </span>
-                    ))}
-                  </div>
-                </AccordionContent>
-              </AccordionItem>
-            </Accordion>
-          </div>
-        </CardContent>
-      </Card>
+      {statics &&
+        (statics.cache_sizes.length > 0 || statics.features.length > 0) && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Processor details</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Accordion type="single" collapsible defaultValue="cache">
+                {statics.cache_sizes.length > 0 && (
+                  <AccordionItem value="cache">
+                    <AccordionTrigger>Cache</AccordionTrigger>
+                    <AccordionContent>
+                      <ul className="flex flex-col gap-1">
+                        {statics.cache_sizes.map((cache) => (
+                          <li
+                            key={cache.label}
+                            className="flex items-baseline justify-between border-b border-border/60 pb-1 text-sm"
+                          >
+                            <span className="text-muted-foreground">
+                              {cache.label}
+                            </span>
+                            <span className="stat-figure">
+                              {formatBytes(cache.bytes, 0)}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </AccordionContent>
+                  </AccordionItem>
+                )}
+                {statics.features.length > 0 && (
+                  <AccordionItem value="features">
+                    <AccordionTrigger>
+                      Instruction set features
+                    </AccordionTrigger>
+                    <AccordionContent>
+                      <div className="flex flex-wrap gap-1.5">
+                        {statics.features.map((feature) => (
+                          <span
+                            key={feature}
+                            className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground"
+                          >
+                            {feature}
+                          </span>
+                        ))}
+                      </div>
+                    </AccordionContent>
+                  </AccordionItem>
+                )}
+              </Accordion>
+            </CardContent>
+          </Card>
+        )}
     </div>
   );
 };
-
-function formatSize(bytes: number) {
-  const KB = 1024;
-  const MB = KB * 1024;
-  const GB = MB * 1024;
-
-  if (bytes >= GB) {
-    return `${(bytes / GB).toFixed(2)} GB`;
-  } else if (bytes >= MB) {
-    return `${(bytes / MB).toFixed(2)} MB`;
-  } else if (bytes >= KB) {
-    return `${(bytes / KB).toFixed(2)} KB`;
-  } else {
-    return `${bytes} B`;
-  }
-}

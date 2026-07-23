@@ -1,11 +1,9 @@
 [package]
 name = "monsoon"
 version = "0.1.0"
-description = "A Tauri App"
-authors = ["you"]
+description = "Cross-platform system monitor built with Tauri and React"
+authors = ["Sparkenstein"]
 edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [lib]
 # The `_lib` suffix may seem redundant but it is necessary
@@ -19,8 +17,21 @@ tauri-build = { version = "2.0.0", features = [] }
 
 [dependencies]
 tauri = { version = "2.0.0", features = [] }
-tauri-plugin-shell = "2.0.0"
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
 sysinfo = "0.32"
+tokio = { version = "1", features = ["time"] }
+
+# cpuid only exists on x86; other targets get empty cache/feature lists.
+[target.'cfg(target_arch = "x86_64")'.dependencies]
 raw-cpuid = "11.2.0"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+unwrap_used = "warn"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

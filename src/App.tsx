@@ -1,38 +1,52 @@
+import { lazy, Suspense } from "react";
+import { Navigate, Route, Routes } from "react-router-dom";
+
+import { AppSidebar } from "@/components/app-sidebar";
+import { ErrorBoundary } from "@/components/error-boundary";
+import { ThemeProvider } from "@/components/theme-provider";
 import {
   ResizableHandle,
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
-import { Navbar } from "./components/navbar/Navbar";
-import { Routes, Route } from "react-router-dom";
-import { Home } from "./pages/home";
-import { CPU } from "./pages/cpu";
-import { Memory } from "./pages/memory";
-import { Processes } from "./pages/processes";
-import { ThemeProvider } from "@/components/theme-provider";
+
+// Route-level code splitting keeps recharts out of the initial chunk.
+const Home = lazy(() =>
+  import("@/pages/home").then((m) => ({ default: m.Home })),
+);
+const CPU = lazy(() => import("@/pages/cpu").then((m) => ({ default: m.CPU })));
+const Memory = lazy(() =>
+  import("@/pages/memory").then((m) => ({ default: m.Memory })),
+);
+const Processes = lazy(() =>
+  import("@/pages/processes").then((m) => ({ default: m.Processes })),
+);
 
 function App() {
   return (
     <ThemeProvider>
-      <div className="h-full">
-        <ResizablePanelGroup orientation="horizontal">
-          {/* v4: numeric sizes are pixels, so percentages must be strings */}
-          <ResizablePanel maxSize="16%">
-            <Navbar />
-          </ResizablePanel>
-          <ResizableHandle />
-          <ResizablePanel>
-            <div className="h-full p-3 overflow-auto">
-              <Routes>
-                <Route path="/" element={<Home />} />
-                <Route path="/cpu" element={<CPU />} />
-                <Route path="/memory" element={<Memory />} />
-                <Route path="/process" element={<Processes />} />
-              </Routes>
-            </div>
-          </ResizablePanel>
-        </ResizablePanelGroup>
-      </div>
+      <ResizablePanelGroup orientation="horizontal">
+        {/* v4: numeric sizes are pixels, percentage sizes must be strings */}
+        <ResizablePanel defaultSize="15%" minSize={150} maxSize="24%">
+          <AppSidebar />
+        </ResizablePanel>
+        <ResizableHandle />
+        <ResizablePanel>
+          <main className="h-full overflow-auto p-4">
+            <ErrorBoundary>
+              <Suspense fallback={null}>
+                <Routes>
+                  <Route path="/" element={<Home />} />
+                  <Route path="/cpu" element={<CPU />} />
+                  <Route path="/memory" element={<Memory />} />
+                  <Route path="/processes" element={<Processes />} />
+                  <Route path="*" element={<Navigate to="/" replace />} />
+                </Routes>
+              </Suspense>
+            </ErrorBoundary>
+          </main>
+        </ResizablePanel>
+      </ResizablePanelGroup>
     </ThemeProvider>
   );
 }
