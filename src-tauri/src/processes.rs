@@ -2,7 +2,7 @@ use std::sync::atomic::Ordering;
 
 use serde::Serialize;
 use sysinfo::{
-    Pid, ProcessRefreshKind, ProcessesToUpdate, RefreshKind, System, UpdateKind,
+    Pid, ProcessRefreshKind, ProcessesToUpdate, RefreshKind, Signal, System, UpdateKind,
     MINIMUM_CPU_UPDATE_INTERVAL,
 };
 use tauri::{ipc::Channel, State};
@@ -80,7 +80,7 @@ pub async fn get_processes_info(
 }
 
 #[tauri::command]
-pub async fn kill_process(pid: u32) -> Result<(), String> {
+pub async fn kill_process(pid: u32, force: bool) -> Result<(), String> {
     if pid == std::process::id() {
         return Err("Refusing to terminate Monsoon itself".to_string());
     }
@@ -95,7 +95,18 @@ pub async fn kill_process(pid: u32) -> Result<(), String> {
     let process = sys
         .process(target)
         .ok_or_else(|| format!("Process {pid} not found"))?;
-    if process.kill() {
+
+    // Default to a graceful SIGTERM so the target can clean up and flush; the
+    // UI offers an explicit "Force kill" escalation for SIGKILL. `kill_with`
+    // returns `None` on platforms without the signal (e.g. Windows), where we
+    // fall back to the platform default terminate.
+    let sent = if force {
+        process.kill()
+    } else {
+        process.kill_with(Signal::Term).unwrap_or_else(|| process.kill())
+    };
+
+    if sent {
         Ok(())
     } else {
         Err(format!("Failed to send kill signal to process {pid}"))

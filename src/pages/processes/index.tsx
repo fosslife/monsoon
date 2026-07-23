@@ -30,6 +30,13 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import {
   Table,
   TableBody,
   TableCell,
@@ -123,6 +130,10 @@ const COLUMNS: Column[] = [
 
 const DEFAULT_VISIBLE = ["pid", "name", "cpu_usage", "memory", "cmd"];
 
+// Windows has no SIGTERM/SIGKILL distinction — the backend collapses both to a
+// single terminate — so we hide the graceful/force choice there.
+const isWindows = navigator.userAgent.includes("Windows");
+
 function compareBy(a: ProcessInfo, b: ProcessInfo, key: SortKey): number {
   if (key === "name") return a.name.localeCompare(b.name);
   return a[key] - b[key];
@@ -161,6 +172,9 @@ export const Processes = () => {
   const [paused, setPaused] = useState(false);
   const [killTarget, setKillTarget] = useState<ProcessInfo | null>(null);
   const [killError, setKillError] = useState<string | null>(null);
+  // Snapshot of the row the user pressed, captured at pointer-down so a live
+  // re-sort can't swap it out from under the click.
+  const [selected, setSelected] = useState<ProcessInfo | null>(null);
 
   useStream<ProcessInfo[]>("processes", setProcesses, !paused);
 
@@ -186,6 +200,21 @@ export const Processes = () => {
     [processes],
   );
 
+  // Resolve the selected process from the live list so the drawer stays current
+  // as the stream ticks; `undefined` means it has since exited.
+  const processByPid = useMemo(() => {
+    const map = new Map<number, ProcessInfo>();
+    for (const p of processes) map.set(p.pid, p);
+    return map;
+  }, [processes]);
+
+  // Prefer the live copy so the drawer keeps ticking; fall back to the
+  // snapshot (and flag it) once the process exits.
+  const liveSelected = selected
+    ? (processByPid.get(selected.pid) ?? selected)
+    : null;
+  const selectedEnded = selected !== null && !processByPid.has(selected.pid);
+
   const handleSort = (key: SortKey) => {
     if (key === sortKey) {
       setSortDirection((prev) => (prev === "asc" ? "desc" : "asc"));
@@ -204,10 +233,10 @@ export const Processes = () => {
     });
   };
 
-  const confirmKill = async () => {
+  const killProcess = async (force: boolean) => {
     if (!killTarget) return;
     try {
-      await invoke("kill_process", { pid: killTarget.pid });
+      await invoke("kill_process", { pid: killTarget.pid, force });
       setKillError(null);
     } catch (error) {
       setKillError(String(error));
@@ -333,7 +362,10 @@ export const Processes = () => {
             {rows.map((process) => (
               <TableRow
                 key={process.pid}
-                className="text-xs odd:bg-muted/20 hover:bg-accent/40"
+                className="cursor-pointer select-none text-xs odd:bg-muted/20 hover:bg-accent/40"
+                onPointerDown={(event) => {
+                  if (event.button === 0) setSelected(process);
+                }}
               >
                 {shownColumns.map((column) => (
                   <TableCell
@@ -354,7 +386,11 @@ export const Processes = () => {
                     variant="ghost"
                     size="icon"
                     className="size-7 text-muted-foreground hover:text-destructive"
-                    onClick={() => setKillTarget(process)}
+                    onPointerDown={(event) => event.stopPropagation()}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setKillTarget(process);
+                    }}
                     aria-label={`Kill ${process.name}`}
                   >
                     <IconTrash className="size-4" />
@@ -381,23 +417,199 @@ export const Processes = () => {
                   <span className="font-medium text-foreground">
                     {killTarget.name}
                   </span>{" "}
-                  (PID {killTarget.pid}) will be terminated. Unsaved work in
-                  that application may be lost.
+                  (PID {killTarget.pid}) will be terminated.{" "}
+                  {isWindows
+                    ? "Unsaved work in that application may be lost."
+                    : "Terminate asks it to shut down cleanly; force kill stops it immediately and unsaved work may be lost."}
                 </>
               )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              onClick={() => void confirmKill()}
-            >
-              Kill process
-            </AlertDialogAction>
+            {isWindows ? (
+              <AlertDialogAction
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                onClick={() => void killProcess(true)}
+              >
+                Kill process
+              </AlertDialogAction>
+            ) : (
+              <>
+                <AlertDialogAction
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  onClick={() => void killProcess(true)}
+                >
+                  Force kill
+                </AlertDialogAction>
+                <AlertDialogAction onClick={() => void killProcess(false)}>
+                  Terminate
+                </AlertDialogAction>
+              </>
+            )}
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Sheet
+        modal={false}
+        open={selected !== null}
+        onOpenChange={(open) => {
+          if (!open) setSelected(null);
+        }}
+      >
+        <SheetContent
+          overlay={false}
+          // Non-modal: keep the drawer open while the list stays live, so
+          // clicking another row swaps its contents instead of dismissing.
+          onInteractOutside={(event) => event.preventDefault()}
+          className="flex w-full flex-col gap-0 overflow-y-auto sm:max-w-md"
+        >
+          {liveSelected && (
+            <ProcessDetail
+              process={liveSelected}
+              ended={selectedEnded}
+              processByPid={processByPid}
+              onSelect={setSelected}
+              onKill={() => {
+                setKillTarget(liveSelected);
+                setSelected(null);
+              }}
+            />
+          )}
+        </SheetContent>
+      </Sheet>
     </div>
   );
 };
+
+/** Ancestor list from a process up to the root, resolving names when live. */
+function parentChain(
+  process: ProcessInfo,
+  processByPid: Map<number, ProcessInfo>,
+): { pid: number; name: string | null }[] {
+  const chain: { pid: number; name: string | null }[] = [];
+  const seen = new Set<number>([process.pid]);
+  let parent = process.parent;
+  while (parent != null && !seen.has(parent)) {
+    seen.add(parent);
+    chain.push({ pid: parent, name: processByPid.get(parent)?.name ?? null });
+    parent = processByPid.get(parent)?.parent ?? null;
+  }
+  return chain;
+}
+
+function DetailRow({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="grid grid-cols-[7rem_1fr] gap-3 py-2">
+      <dt className="text-xs font-medium text-muted-foreground">{label}</dt>
+      <dd className="min-w-0 text-sm">{children}</dd>
+    </div>
+  );
+}
+
+function ProcessDetail({
+  process,
+  ended,
+  processByPid,
+  onSelect,
+  onKill,
+}: {
+  process: ProcessInfo;
+  ended: boolean;
+  processByPid: Map<number, ProcessInfo>;
+  onSelect: (process: ProcessInfo) => void;
+  onKill: () => void;
+}) {
+  const chain = parentChain(process, processByPid);
+  const commandLine = process.cmd.join(" ");
+
+  return (
+    <>
+      <SheetHeader className="pr-8">
+        <SheetTitle className="truncate">{process.name}</SheetTitle>
+        <SheetDescription>
+          PID {process.pid}
+          {ended && " · no longer running"}
+        </SheetDescription>
+      </SheetHeader>
+
+      <dl className="mt-4 divide-y divide-border">
+        <DetailRow label="CPU">
+          <span className="stat-figure">{formatPercent(process.cpu_usage)}</span>
+        </DetailRow>
+        <DetailRow label="Memory">
+          <span className="stat-figure">{formatBytes(process.memory)}</span>
+        </DetailRow>
+        <DetailRow label="Virtual">
+          <span className="stat-figure">
+            {formatBytes(process.virtual_memory)}
+          </span>
+        </DetailRow>
+        <DetailRow label="Status">{process.status}</DetailRow>
+        <DetailRow label="Run time">
+          <span className="stat-figure">{formatDuration(process.run_time)}</span>
+        </DetailRow>
+        <DetailRow label="Executable">
+          {process.exe ? (
+            <span className="break-all font-mono text-xs">{process.exe}</span>
+          ) : (
+            <span className="text-muted-foreground">—</span>
+          )}
+        </DetailRow>
+        <DetailRow label="Command">
+          {commandLine ? (
+            <span className="break-all font-mono text-xs">{commandLine}</span>
+          ) : (
+            <span className="text-muted-foreground">—</span>
+          )}
+        </DetailRow>
+        <DetailRow label="Parents">
+          {chain.length ? (
+            <ol className="flex flex-col gap-1">
+              {chain.map((ancestor) => (
+                <li key={ancestor.pid} className="flex items-center gap-2">
+                  {processByPid.has(ancestor.pid) ? (
+                    <button
+                      type="button"
+                      className="text-left hover:text-foreground hover:underline"
+                      onClick={() => {
+                        const live = processByPid.get(ancestor.pid);
+                        if (live) onSelect(live);
+                      }}
+                    >
+                      <span className="font-medium">
+                        {ancestor.name ?? "—"}
+                      </span>{" "}
+                      <span className="stat-figure text-muted-foreground">
+                        {ancestor.pid}
+                      </span>
+                    </button>
+                  ) : (
+                    <span className="text-muted-foreground">
+                      {ancestor.name ?? "—"}{" "}
+                      <span className="stat-figure">{ancestor.pid}</span>
+                    </span>
+                  )}
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <span className="text-muted-foreground">—</span>
+          )}
+        </DetailRow>
+      </dl>
+
+      <div className="mt-auto pt-6">
+        <Button
+          variant="outline"
+          className="w-full gap-2 text-destructive hover:text-destructive"
+          onClick={onKill}
+        >
+          <IconTrash className="size-4" />
+          Kill process
+        </Button>
+      </div>
+    </>
+  );
+}
