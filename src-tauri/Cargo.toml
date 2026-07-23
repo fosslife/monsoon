@@ -18,7 +18,8 @@ tauri-build = { version = "2.0.0", features = [] }
 [dependencies]
 tauri = { version = "2.0.0", features = [] }
 serde = { version = "1", features = ["derive"] }
-sysinfo = "0.32"
+# 0.33+ needed for per-disk I/O rates (Disk::usage)
+sysinfo = "0.33"
 tokio = { version = "1", features = ["time"] }
 
 # cpuid only exists on x86; other targets get empty cache/feature lists.

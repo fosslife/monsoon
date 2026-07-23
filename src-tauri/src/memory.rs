@@ -23,8 +23,9 @@ pub async fn get_memory_info(
     on_event: Channel<MemorySnapshot>,
 ) -> Result<(), String> {
     let cancelled = registry.begin(StreamName::Memory);
-    let mut sys =
-        System::new_with_specifics(RefreshKind::new().with_memory(MemoryRefreshKind::everything()));
+    let mut sys = System::new_with_specifics(
+        RefreshKind::nothing().with_memory(MemoryRefreshKind::everything()),
+    );
 
     while !cancelled.load(Ordering::Relaxed) {
         sys.refresh_memory();

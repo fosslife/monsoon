@@ -26,7 +26,7 @@ pub struct ProcessInfo {
 fn process_refresh_kind() -> ProcessRefreshKind {
     // Only what the UI shows — everything() would also collect environ,
     // cwd, disk usage, etc. for every process on every tick.
-    ProcessRefreshKind::new()
+    ProcessRefreshKind::nothing()
         .with_cpu()
         .with_memory()
         .with_cmd(UpdateKind::OnlyIfNotSet)
@@ -40,7 +40,7 @@ pub async fn get_processes_info(
 ) -> Result<(), String> {
     let cancelled = registry.begin(StreamName::Processes);
     let refresh = process_refresh_kind();
-    let mut sys = System::new_with_specifics(RefreshKind::new().with_processes(refresh));
+    let mut sys = System::new_with_specifics(RefreshKind::nothing().with_processes(refresh));
 
     // Per-process CPU usage is a delta between two refreshes.
     tokio::time::sleep(MINIMUM_CPU_UPDATE_INTERVAL).await;

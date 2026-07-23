@@ -1,6 +1,9 @@
 mod cpu;
 mod cpuid;
+mod disks;
 mod memory;
+mod network;
+mod overview;
 mod processes;
 mod streams;
 mod system;
@@ -16,6 +19,9 @@ pub fn run() {
             memory::get_memory_info,
             processes::get_processes_info,
             processes::kill_process,
+            overview::get_overview_info,
+            disks::get_disks_info,
+            network::get_network_info,
             streams::stop_stream,
         ])
         .setup(|_app| {

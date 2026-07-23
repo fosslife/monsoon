@@ -20,7 +20,8 @@ pub struct CpuStatic {
 
 #[tauri::command]
 pub fn get_cpu_static() -> CpuStatic {
-    let sys = System::new_with_specifics(RefreshKind::new().with_cpu(CpuRefreshKind::new()));
+    let sys =
+        System::new_with_specifics(RefreshKind::nothing().with_cpu(CpuRefreshKind::nothing()));
     CpuStatic {
         brand: sys
             .cpus()
@@ -54,8 +55,8 @@ pub async fn get_cpu_info(
     on_event: Channel<CpuSnapshot>,
 ) -> Result<(), String> {
     let cancelled = registry.begin(StreamName::Cpu);
-    let refresh = CpuRefreshKind::new().with_cpu_usage().with_frequency();
-    let mut sys = System::new_with_specifics(RefreshKind::new().with_cpu(refresh));
+    let refresh = CpuRefreshKind::nothing().with_cpu_usage().with_frequency();
+    let mut sys = System::new_with_specifics(RefreshKind::nothing().with_cpu(refresh));
 
     // Usage is a delta between two refreshes; wait so the first sample is real.
     tokio::time::sleep(MINIMUM_CPU_UPDATE_INTERVAL).await;

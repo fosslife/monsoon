@@ -38,7 +38,14 @@ export default tseslint.config(
       // shadcn primitives export variants, providers export their hook
       "react-refresh/only-export-components": [
         "warn",
-        { allowExportNames: ["buttonVariants", "useTheme"] },
+        {
+          allowExportNames: [
+            "buttonVariants",
+            "useTheme",
+            "useMetrics",
+            "heatColor",
+          ],
+        },
       ],
     },
   },

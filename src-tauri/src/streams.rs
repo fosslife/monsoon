@@ -26,6 +26,9 @@ pub enum StreamName {
     Cpu,
     Memory,
     Processes,
+    Overview,
+    Disks,
+    Networks,
 }
 
 #[derive(Default)]

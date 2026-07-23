@@ -10,6 +10,11 @@ export function formatBytes(bytes: number, decimals = 1): string {
   return `${(bytes / 1024 ** exponent).toFixed(decimals)} ${BYTE_UNITS[exponent]}`;
 }
 
+/** Throughput readout, e.g. "1.2 MiB/s". */
+export function formatRate(bytesPerSecond: number): string {
+  return `${formatBytes(bytesPerSecond)}/s`;
+}
+
 export function formatPercent(value: number, decimals = 1): string {
   if (!Number.isFinite(value)) return "—";
   return `${value.toFixed(decimals)}%`;

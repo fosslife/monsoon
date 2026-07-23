@@ -7,6 +7,9 @@ const STREAM_COMMANDS: Record<StreamName, string> = {
   cpu: "get_cpu_info",
   memory: "get_memory_info",
   processes: "get_processes_info",
+  overview: "get_overview_info",
+  disks: "get_disks_info",
+  networks: "get_network_info",
 };
 
 /**

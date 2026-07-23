@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { CoreHeatmap } from "@/components/core-heatmap";
 import { UsageChart, type UsagePoint } from "@/components/usage-chart";
 import {
   Accordion,
@@ -128,31 +129,37 @@ export const CPU = () => {
           {view === "overall" ? (
             <UsageChart points={overallPoints} color={CPU_COLOR} height={300} />
           ) : (
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-              {corePoints.map(([name, points]) => {
-                const core = coreByName.get(name);
-                return (
-                  <div
-                    key={name}
-                    className="rounded-lg border border-border/60 p-2"
-                  >
-                    <div className="flex items-baseline justify-between px-1 pb-1">
-                      <span className="text-xs font-medium">{name}</span>
-                      <span className="stat-figure text-xs text-muted-foreground">
-                        {core
-                          ? `${formatPercent(core.usage, 0)} · ${formatFrequency(core.frequency)}`
-                          : "…"}
-                      </span>
+            <div className="flex flex-col gap-4">
+              <CoreHeatmap
+                usages={latest?.cores.map((core) => core.usage) ?? []}
+                variant="cells"
+              />
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                {corePoints.map(([name, points]) => {
+                  const core = coreByName.get(name);
+                  return (
+                    <div
+                      key={name}
+                      className="rounded-lg border border-border/60 p-2"
+                    >
+                      <div className="flex items-baseline justify-between px-1 pb-1">
+                        <span className="text-xs font-medium">{name}</span>
+                        <span className="stat-figure text-xs text-muted-foreground">
+                          {core
+                            ? `${formatPercent(core.usage, 0)} · ${formatFrequency(core.frequency)}`
+                            : "…"}
+                        </span>
+                      </div>
+                      <UsageChart
+                        points={points}
+                        color={CPU_COLOR}
+                        height={140}
+                        compact
+                      />
                     </div>
-                    <UsageChart
-                      points={points}
-                      color={CPU_COLOR}
-                      height={140}
-                      compact
-                    />
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
           )}
         </CardContent>

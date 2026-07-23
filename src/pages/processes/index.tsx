@@ -128,6 +128,28 @@ function compareBy(a: ProcessInfo, b: ProcessInfo, key: SortKey): number {
   return a[key] - b[key];
 }
 
+/** Heat tint for CPU/memory cells; intensity tracks the metric. */
+function heatCellStyle(
+  columnId: string,
+  process: ProcessInfo,
+  maxMemory: number,
+): React.CSSProperties | undefined {
+  if (columnId === "cpu_usage" && process.cpu_usage > 0.5) {
+    const strength = Math.min(55, process.cpu_usage * 0.55);
+    return {
+      backgroundColor: `color-mix(in oklab, var(--chart-1) ${strength.toFixed(0)}%, transparent)`,
+    };
+  }
+  if (columnId === "memory" && maxMemory > 0) {
+    const strength = Math.min(55, (process.memory / maxMemory) * 55);
+    if (strength < 3) return undefined;
+    return {
+      backgroundColor: `color-mix(in oklab, var(--chart-2) ${strength.toFixed(0)}%, transparent)`,
+    };
+  }
+  return undefined;
+}
+
 export const Processes = () => {
   const [processes, setProcesses] = useState<ProcessInfo[]>([]);
   const [search, setSearch] = useState("");
@@ -158,6 +180,11 @@ export const Processes = () => {
     const direction = sortDirection === "asc" ? 1 : -1;
     return [...filtered].sort((a, b) => direction * compareBy(a, b, sortKey));
   }, [processes, deferredSearch, sortKey, sortDirection]);
+
+  const maxMemory = useMemo(
+    () => processes.reduce((max, p) => Math.max(max, p.memory), 0),
+    [processes],
+  );
 
   const handleSort = (key: SortKey) => {
     if (key === sortKey) {
@@ -304,11 +331,15 @@ export const Processes = () => {
           </TableHeader>
           <TableBody>
             {rows.map((process) => (
-              <TableRow key={process.pid}>
+              <TableRow
+                key={process.pid}
+                className="text-xs odd:bg-muted/20 hover:bg-accent/40"
+              >
                 {shownColumns.map((column) => (
                   <TableCell
                     key={column.id}
                     className={cn("py-1.5", column.cellClassName)}
+                    style={heatCellStyle(column.id, process, maxMemory)}
                     title={
                       column.id === "cmd"
                         ? process.cmd.join(" ") || (process.exe ?? undefined)

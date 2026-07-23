@@ -40,63 +40,70 @@ export function UsageChart({
   const gradientId = useId();
 
   return (
-    <ResponsiveContainer width="100%" height={height}>
-      <AreaChart
-        data={points}
-        margin={{ top: 8, right: 8, left: compact ? -16 : 0, bottom: 0 }}
-      >
-        <defs>
-          <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="5%" stopColor={color} stopOpacity={0.5} />
-            <stop offset="100%" stopColor={color} stopOpacity={0.02} />
-          </linearGradient>
-        </defs>
-        <CartesianGrid
-          strokeDasharray="3 3"
-          stroke="var(--border)"
-          vertical={false}
-        />
-        <XAxis
-          dataKey="age"
-          type="number"
-          reversed
-          domain={[0, windowSeconds]}
-          ticks={compact ? [windowSeconds, 0] : [60, 45, 30, 15, 0]}
-          tickFormatter={(age: number) => (age === 0 ? "now" : `-${age}s`)}
-          tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
-          axisLine={{ stroke: "var(--border)" }}
-          tickLine={false}
-        />
-        <YAxis
-          domain={[0, 100]}
-          ticks={compact ? [0, 50, 100] : [0, 25, 50, 75, 100]}
-          tickFormatter={(value: number) => `${value}%`}
-          tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
-          axisLine={false}
-          tickLine={false}
-          width={compact ? 46 : 40}
-        />
-        <Tooltip
-          isAnimationActive={false}
-          contentStyle={{
-            backgroundColor: "var(--popover)",
-            border: "1px solid var(--border)",
-            borderRadius: "calc(var(--radius) - 2px)",
-            color: "var(--popover-foreground)",
-            fontSize: 12,
-          }}
-          labelFormatter={(age) => (Number(age) === 0 ? "now" : `${age}s ago`)}
-          formatter={(value) => [`${Number(value).toFixed(1)}%`, valueLabel]}
-        />
-        <Area
-          type="monotone"
-          dataKey="value"
-          stroke={color}
-          strokeWidth={1.5}
-          fill={`url(#${gradientId})`}
-          isAnimationActive={false}
-        />
-      </AreaChart>
-    </ResponsiveContainer>
+    <div
+      className="chart-glow"
+      style={{ "--glow-color": color } as React.CSSProperties}
+    >
+      <ResponsiveContainer width="100%" height={height}>
+        <AreaChart
+          data={points}
+          margin={{ top: 8, right: 8, left: compact ? -16 : 0, bottom: 0 }}
+        >
+          <defs>
+            <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%" stopColor={color} stopOpacity={0.5} />
+              <stop offset="100%" stopColor={color} stopOpacity={0.02} />
+            </linearGradient>
+          </defs>
+          <CartesianGrid
+            strokeDasharray="3 3"
+            stroke="var(--border)"
+            vertical={false}
+          />
+          <XAxis
+            dataKey="age"
+            type="number"
+            reversed
+            domain={[0, windowSeconds]}
+            ticks={compact ? [windowSeconds, 0] : [60, 45, 30, 15, 0]}
+            tickFormatter={(age: number) => (age === 0 ? "now" : `-${age}s`)}
+            tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
+            axisLine={{ stroke: "var(--border)" }}
+            tickLine={false}
+          />
+          <YAxis
+            domain={[0, 100]}
+            ticks={compact ? [0, 50, 100] : [0, 25, 50, 75, 100]}
+            tickFormatter={(value: number) => `${value}%`}
+            tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
+            axisLine={false}
+            tickLine={false}
+            width={compact ? 46 : 40}
+          />
+          <Tooltip
+            isAnimationActive={false}
+            contentStyle={{
+              backgroundColor: "var(--popover)",
+              border: "1px solid var(--border)",
+              borderRadius: "calc(var(--radius) - 2px)",
+              color: "var(--popover-foreground)",
+              fontSize: 12,
+            }}
+            labelFormatter={(age) =>
+              Number(age) === 0 ? "now" : `${age}s ago`
+            }
+            formatter={(value) => [`${Number(value).toFixed(1)}%`, valueLabel]}
+          />
+          <Area
+            type="monotone"
+            dataKey="value"
+            stroke={color}
+            strokeWidth={1.5}
+            fill={`url(#${gradientId})`}
+            isAnimationActive={false}
+          />
+        </AreaChart>
+      </ResponsiveContainer>
+    </div>
   );
 }

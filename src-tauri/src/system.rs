@@ -22,7 +22,7 @@ pub fn get_system_info() -> SystemInfo {
         hostname: System::host_name().unwrap_or_else(|| "Unknown".to_string()),
         boot_time: System::boot_time(),
         distribution_id: System::distribution_id(),
-        cpu_arch: System::cpu_arch().unwrap_or_else(|| "Unknown".to_string()),
+        cpu_arch: System::cpu_arch(),
         uptime: System::uptime(),
     }
 }

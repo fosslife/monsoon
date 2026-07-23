@@ -145,3 +145,15 @@
     @apply font-mono tabular-nums;
   }
 }
+
+@layer components {
+  /* Soft neon glow on chart strokes; wrapper sets --glow-color. */
+  .chart-glow svg {
+    overflow: visible;
+  }
+  .chart-glow .recharts-area-curve {
+    filter: drop-shadow(
+      0 0 6px color-mix(in oklab, var(--glow-color) 55%, transparent)
+    );
+  }
+}

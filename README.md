@@ -6,10 +6,13 @@ Monsoon shows live CPU, memory, and process statistics sampled once per second, 
 
 ## Features
 
-- **Overview** — OS, kernel, architecture, boot time, and live uptime
-- **CPU** — overall usage history (60 s rolling window), per-core mini charts, cache sizes and instruction-set features (x86_64)
+- **Dashboard** — dense mission-control board: CPU sparkline + per-core heat strip, memory meters, network/disk I/O rates, top processes, system info
+- **CPU** — overall usage history (60 s rolling window), per-core heatmap + mini charts, cache sizes and instruction-set features (x86_64)
 - **Memory** — RAM usage history plus used/available/free breakdown and swap
-- **Processes** — searchable, sortable process table with configurable columns, pause/resume, and confirmed kill
+- **Processes** — searchable, sortable process table with heat-tinted cells, configurable columns, pause/resume, and confirmed kill
+- **Disks** — per-volume capacity, filesystem/kind, and live read/write rates
+- **Network** — per-interface throughput charts and totals
+- Frameless window with custom titlebar, live status footer, light/dark/system themes
 
 ## Development
 
