@@ -11,7 +11,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { ListIcon, RefreshCcwIcon, Trash2Icon } from "lucide-react";
+import { ListIcon, Trash2Icon } from "lucide-react";
 
 import {
   DropdownMenu,
@@ -21,7 +21,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Checkbox } from "@/components/ui/checkbox";
-import { channel } from "diagnostics_channel";
 import { IconArrowDown, IconArrowUp } from "@tabler/icons-react";
 
 type Process = {

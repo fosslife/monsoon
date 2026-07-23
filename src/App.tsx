@@ -15,8 +15,9 @@ function App() {
   return (
     <ThemeProvider>
       <div className="h-full">
-        <ResizablePanelGroup direction="horizontal">
-          <ResizablePanel maxSize={16}>
+        <ResizablePanelGroup orientation="horizontal">
+          {/* v4: numeric sizes are pixels, so percentages must be strings */}
+          <ResizablePanel maxSize="16%">
             <Navbar />
           </ResizablePanel>
           <ResizableHandle />

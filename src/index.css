@@ -1,6 +1,6 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+/* Tailwind 4 still loads the legacy JS config (theme colors, darkMode, animate plugin) via @config */
+@config "../tailwind.config.js";
 @layer base {
   :root {
     --background: 0 0% 100%;

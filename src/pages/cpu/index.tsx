@@ -227,7 +227,7 @@ export const CPU = () => {
                         // }
                         labelFormatter={(unixTime) => {
                           const seconds = Math.round(
-                            (Date.now() - unixTime) / 1000
+                            (Date.now() - Number(unixTime)) / 1000
                           );
                           return `${60 - seconds} seconds ago`;
                         }}
